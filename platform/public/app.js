@@ -1,16 +1,18 @@
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmt = Logic.fmt;
-let S = null, selectedDeal = null;
+const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US');
+let S = null, selectedDeal = null, ME = null, PERMS = [];
+const can = (p) => PERMS.includes('*') || PERMS.includes(p);
 
 async function call(method, path, body) {
   const r = await fetch('/api/' + path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json();
+  if (r.status === 401 && ME) { ME = null; render(); throw new Error('Session ended'); }
   if (!r.ok) { toast(j.error || 'Error'); throw new Error(j.error); }
   return j;
 }
 function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.remove('hidden'); setTimeout(() => t.classList.add('hidden'), 3000); }
-async function refresh() { S = await call('GET', 'state'); $('#llmStatus').textContent = S.llm.enabled ? 'Model: ' + S.llm.provider + ' / ' + S.llm.model : 'Model: off (templates)'; }
+async function refresh() { S = await call('GET', 'state'); $('#llmStatus').textContent = !can('view.full') ? '' : S.llm.enabled ? 'Model: ' + S.llm.provider + ' / ' + S.llm.model : 'Model: off (templates)'; }
 const aircraft = (id) => S.inventory.find((a) => a.id === id);
 const priceOf = (a, mode) => (mode === 'lease' ? fmt(a.leaseMonthly) + '/mo' : fmt(a.listPrice));
 const form = (el) => Object.fromEntries(new FormData(el));
@@ -32,11 +34,11 @@ const pages = {
 
   inventory() {
     return `<h1>Inventory</h1>
-    <div class="card"><table><tr><th>ID</th><th>Aircraft</th><th>Year / hrs</th><th>Seats / range</th><th>Location</th><th>List</th><th>Lease/mo</th><th>Broker-only limits</th><th></th></tr>
+    <div class="card"><table><tr><th>ID</th><th>Aircraft</th><th>Year / hrs</th><th>Seats / range</th><th>Location</th><th>List</th><th>Lease/mo</th>${can('view.full') ? '<th>Broker-only limits</th>' : ''}<th></th></tr>
     ${S.inventory.map((a) => `<tr><td>${esc(a.id)}</td><td><b>${esc(a.model)}</b><br><span class="tag">${esc(a.type)}</span></td><td>${a.year}<br>${a.hours.toLocaleString()}</td><td>${a.seats}<br>${a.rangeNm} nm</td><td>${esc(a.location)}</td><td>${fmt(a.listPrice)}</td><td>${fmt(a.leaseMonthly)}</td>
-      <td class="small warn">floor ${fmt(a.floor)}<br>max disc ${a.maxDiscountPct}%<br>min lease ${fmt(a.minLeaseMonthly)} / ${a.minTermMonths} mo</td>
-      <td><button class="small secondary" data-edit="${esc(a.id)}">Edit</button> <button class="small danger" data-del="${esc(a.id)}">Delete</button></td></tr>`).join('')}</table></div>
-    <div class="card"><h2 id="invTitle">Add aircraft</h2><form id="invForm"><input type="hidden" name="id">
+      ${can('view.full') ? `<td class="small warn">floor ${fmt(a.floor)}<br>max disc ${a.maxDiscountPct}%<br>min lease ${fmt(a.minLeaseMonthly)} / ${a.minTermMonths} mo</td>` : ''}
+      <td>${can('inventory.write') ? `<button class="small secondary" data-edit="${esc(a.id)}">Edit</button>` : ''} ${can('inventory.delete') ? `<button class="small danger" data-del="${esc(a.id)}">Delete</button>` : ''}</td></tr>`).join('')}</table></div>
+    ${can('inventory.write') ? `<div class="card"><h2 id="invTitle">Add aircraft</h2><form id="invForm"><input type="hidden" name="id">
       <div class="grid">
         <label>Model<input name="model" required></label><label>Type<select name="type"><option>turboprop</option><option>light jet</option><option>regional jet</option><option>narrowbody</option></select></label>
         <label>Year<input name="year" type="number" required></label><label>Hours<input name="hours" type="number" required></label>
@@ -45,10 +47,10 @@ const pages = {
         <label>Floor price (private)<input name="floor" type="number" required></label><label>Max discount %<input name="maxDiscountPct" type="number" value="8" required></label>
         <label>Lease / month<input name="leaseMonthly" type="number" required></label><label>Min lease / month (private)<input name="minLeaseMonthly" type="number" required></label>
         <label>Min term (months)<input name="minTermMonths" type="number" value="36" required></label>
-      </div><button>Save aircraft</button></form></div>`;
+      </div><button>Save aircraft</button></form></div>` : ''}`;
   },
   inventoryInit() {
-    $('#invForm').onsubmit = async (e) => { e.preventDefault(); await call('POST', 'inventory', form(e.target)); toast('Saved'); await render(); };
+    if ($('#invForm')) $('#invForm').onsubmit = async (e) => { e.preventDefault(); await call('POST', 'inventory', form(e.target)); toast('Saved'); await render(); };
     document.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { if (confirm('Delete ' + b.dataset.del + '?')) { await call('DELETE', 'inventory/' + b.dataset.del); await render(); } });
     document.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => {
       const a = aircraft(b.dataset.edit), f = $('#invForm'); for (const k in a) if (f.elements[k]) f.elements[k].value = a[k];
@@ -58,20 +60,20 @@ const pages = {
 
   leads() {
     return `<h1>Leads</h1>
-    <div class="card"><h2>New inquiry</h2><form id="leadForm"><div class="grid">
+    ${can('leads.write') ? `<div class="card"><h2>New inquiry</h2><form id="leadForm"><div class="grid">
       <label>Name<input name="name" required></label><label>Company<input name="company"></label><label>Country<input name="country" required></label>
       <label>Buy or lease<select name="mode"><option value="buy">Buy</option><option value="lease">Lease</option></select></label>
       <label>Type<select name="type"><option value="any">Any</option><option>turboprop</option><option>light jet</option><option>regional jet</option><option>narrowbody</option></select></label>
       <label>Min seats<input name="seats" type="number"></label><label>Min range (nm)<input name="rangeNm" type="number"></label>
       <label>Max age (yrs)<input name="maxAge" type="number"></label><label>Budget (per month if lease)<input name="budget" type="number"></label>
-    </div><button>Screen and match</button></form></div>
+    </div><button>Screen and match</button></form></div>` : ''}
     ${S.leads.map((l) => `<div class="card"><b>${esc(l.name)}</b> ${esc(l.company || '')} <span class="muted">· ${esc(l.country)} · ${l.request.mode}</span>
       <span class="tag ${l.screening.ok ? 'ok' : 'bad'}">${l.screening.ok ? 'screening passed (demo)' : 'compliance hold: ' + esc(l.screening.reason)}</span>
-      ${l.matches.map((m) => { const a = aircraft(m.aircraftId); return a ? `<div style="margin-top:8px">${esc(a.model)} <span class="tag">${a.id}</span> <span class="tag">match ${m.score}</span> ${priceOf(a, l.request.mode)} <span class="warn small">${esc(m.reasons.join(', '))}</span> <button class="small secondary" data-open="${l.id}|${a.id}">Open deal</button></div>` : ''; }).join('')}
+      ${l.matches.map((m) => { const a = aircraft(m.aircraftId); return a ? `<div style="margin-top:8px">${esc(a.model)} <span class="tag">${a.id}</span> <span class="tag">match ${m.score}</span> ${priceOf(a, l.request.mode)} <span class="warn small">${esc(m.reasons.join(', '))}</span> ${can('deals.write') ? `<button class="small secondary" data-open="${l.id}|${a.id}">Open deal</button>` : ''}</div>` : ''; }).join('')}
       ${l.screening.ok && !l.matches.length ? '<p class="muted small">No matching aircraft. Source inventory.</p>' : ''}</div>`).join('')}`;
   },
   leadsInit() {
-    $('#leadForm').onsubmit = async (e) => { e.preventDefault(); await call('POST', 'leads', form(e.target)); await render(); };
+    if ($('#leadForm')) $('#leadForm').onsubmit = async (e) => { e.preventDefault(); await call('POST', 'leads', form(e.target)); await render(); };
     document.querySelectorAll('[data-open]').forEach((b) => b.onclick = async () => { const [leadId, aircraftId] = b.dataset.open.split('|'); const d = await call('POST', 'deals', { leadId, aircraftId }); selectedDeal = d.id; location.hash = '#/deals'; });
   },
 
@@ -83,14 +85,14 @@ const pages = {
     if (d) {
       const a = aircraft(d.aircraftId) || {}; const pending = d.messages.find((m) => m.status === 'draft');
       detail = `<div class="card"><h2>${esc(d.buyer)} · ${esc(a.model)} <span class="tag">${d.mode}</span></h2>
-        <div class="limits">Broker-only: ${d.mode === 'lease' ? `min ${fmt(a.minLeaseMonthly)}/mo, min term ${a.minTermMonths} mo` : `floor ${fmt(a.floor)}, max discount ${a.maxDiscountPct}%`}. Asking ${priceOf(a, d.mode)}.</div>
+        ${can('view.full') ? `<div class="limits">Broker-only: ${d.mode === 'lease' ? `min ${fmt(a.minLeaseMonthly)}/mo, min term ${a.minTermMonths} mo` : `floor ${fmt(a.floor)}, max discount ${a.maxDiscountPct}%`}. Asking ${priceOf(a, d.mode)}.</div>` : `<div class="muted small">Asking ${priceOf(a, d.mode)}.</div>`}
         <div>${d.messages.filter((m) => m.status !== 'rejected').map((m) => m.role === 'buyer' ? `<div class="msg buyer">${esc(m.text)}</div>` :
           m.status === 'draft' ? `<div class="msg assistant draft"><b>Draft (${m.action})</b> <span class="tag">${esc(m.source)}</span>
             ${m.flags.map((f) => `<div class="warn small">⚠ ${esc(f)}</div>`).join('')}<textarea id="draftText" rows="5">${esc(m.text)}</textarea><div class="muted small">${esc(m.note)}</div>
             <button data-approve="${m.id}">Approve and send</button><button class="secondary" data-reject="${m.id}">Reject</button></div>`
           : `<div class="msg assistant">${esc(m.text)}</div>`).join('')}</div>
         ${['LOI', 'escalated'].includes(d.stage) ? `<p class="${d.stage === 'LOI' ? 'ok' : 'bad'}">${d.stage === 'LOI' ? 'Ready for letter of intent (human step).' : 'Escalated to the human broker.'}</p>` : ''}
-        ${!pending && d.stage === 'negotiating' ? `<div class="grid"><label>Buyer's offer (${d.mode === 'lease' ? 'per month' : 'USD'})<input id="offer" type="number"></label>${d.mode === 'lease' ? '<label>Term (months)<input id="term" type="number" value="36"></label>' : ''}</div><button id="sendOffer">Submit buyer's offer</button>` : ''}</div>`;
+        ${!pending && d.stage === 'negotiating' && can('deals.write') ? `<div class="grid"><label>Buyer's offer (${d.mode === 'lease' ? 'per month' : 'USD'})<input id="offer" type="number"></label>${d.mode === 'lease' ? '<label>Term (months)<input id="term" type="number" value="36"></label>' : ''}</div><button id="sendOffer">Submit buyer's offer</button>` : ''}</div>`;
     }
     return `<h1>Deals</h1><div class="split"><div>${list}</div><div>${detail}</div></div>`;
   },
@@ -142,12 +144,60 @@ const pages = {
   },
 };
 
+pages.users = async function () {
+  const users = await call('GET', 'users');
+  return `<h1>Users</h1>
+  <div class="card"><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr>
+  ${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
+    <td><select data-role="${u.id}">${['admin', 'broker', 'viewer'].map((r) => `<option ${r === u.role ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
+    <td>${u.disabled ? '<span class="tag bad">disabled</span>' : '<span class="tag ok">active</span>'}</td>
+    <td><button class="small secondary" data-toggle="${u.id}|${u.disabled ? 0 : 1}">${u.disabled ? 'Enable' : 'Disable'}</button>
+      <button class="small secondary" data-reset="${u.id}">Reset password</button>
+      ${u.id !== ME.id ? `<button class="small danger" data-rm="${u.id}">Delete</button>` : ''}</td></tr>`).join('')}</table>
+  <p class="muted small">Admin: everything. Broker: leads, deals, inventory, sees private limits. Viewer: read-only, no private limits or drafts.</p></div>
+  <div class="card"><h2>Add user</h2><form id="userForm"><div class="grid">
+    <label>Name<input name="name" required></label><label>Email<input name="email" type="email" required></label>
+    <label>Role<select name="role"><option>broker</option><option>viewer</option><option>admin</option></select></label>
+    <label>Temporary password (12+ chars)<input name="password" type="password" minlength="12" required autocomplete="new-password"></label></div><button>Create user</button></form></div>`;
+};
+pages.usersInit = function () {
+  $('#userForm').onsubmit = async (e) => { e.preventDefault(); await call('POST', 'users', form(e.target)); toast('User created'); render(); };
+  document.querySelectorAll('[data-role]').forEach((s) => s.onchange = async () => { await call('PUT', 'users/' + s.dataset.role, { role: s.value }).catch(() => {}); render(); });
+  document.querySelectorAll('[data-toggle]').forEach((b) => b.onclick = async () => { const [id, dis] = b.dataset.toggle.split('|'); await call('PUT', 'users/' + id, { disabled: dis === '1' }).catch(() => {}); render(); });
+  document.querySelectorAll('[data-reset]').forEach((b) => b.onclick = async () => { const pw = prompt('New password for this user (12+ chars). They will be signed out.'); if (pw) { await call('PUT', 'users/' + b.dataset.reset, { password: pw }); toast('Password reset'); } });
+  document.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => { if (confirm('Delete this user?')) { await call('DELETE', 'users/' + b.dataset.rm).catch(() => {}); render(); } });
+};
+
+function authView(needsSetup) {
+  document.body.classList.add('authed-out');
+  $('#view').innerHTML = `<div class="auth"><div class="card"><h1>${needsSetup ? 'Create the admin account' : 'Sign in'}</h1>
+    ${needsSetup ? '<p class="muted small">First run: this account will manage users and settings.</p>' : ''}
+    <form id="authForm">${needsSetup ? '<label>Name<input name="name" required autocomplete="name"></label>' : ''}
+    <label>Email<input name="email" type="email" required autocomplete="username"></label>
+    <label>Password${needsSetup ? ' (12+ characters)' : ''}<input name="password" type="password" required ${needsSetup ? 'minlength="12"' : ''} autocomplete="${needsSetup ? 'new-password' : 'current-password'}"></label>
+    <button>${needsSetup ? 'Create account' : 'Sign in'}</button><div class="err" id="authErr"></div></form></div></div>`;
+  $('#authForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const r = await fetch('/api/' + (needsSetup ? 'setup' : 'login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(form(e.target)) });
+    const j = await r.json();
+    if (!r.ok) { $('#authErr').textContent = j.error || 'Failed'; return; }
+    location.hash = '#/dashboard'; render();
+  };
+}
+
 async function render() {
+  const info = await (await fetch('/api/me')).json();
+  if (!info.user) { ME = null; PERMS = []; return authView(info.needsSetup); }
+  ME = info.user; PERMS = info.perms; document.body.classList.remove('authed-out');
+  $('#userBox').innerHTML = `${esc(ME.name)}<br><span class="muted">${esc(ME.role)}</span><br><button id="logout">Sign out</button>`;
+  $('#logout').onclick = async () => { await call('POST', 'logout'); ME = null; render(); };
+  document.querySelectorAll('#nav a[data-perm]').forEach((l) => l.classList.toggle('hidden', !can(l.dataset.perm)));
   await refresh();
   const name = (location.hash.replace('#/', '') || 'dashboard');
-  const page = pages[name] ? name : 'dashboard';
+  const allowed = { training: 'playbook.write', users: 'users.manage' };
+  const page = pages[name] && (!allowed[name] || can(allowed[name])) ? name : 'dashboard';
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.getAttribute('href') === '#/' + page));
-  $('#view').innerHTML = pages[page]();
+  $('#view').innerHTML = await pages[page]();
   if (pages[page + 'Init']) pages[page + 'Init']();
 }
 window.addEventListener('hashchange', render);

@@ -9,10 +9,12 @@ const mock = http.createServer((req, res) => {
 mock.listen(0, '127.0.0.1', () => {
   process.env.LLM_PROVIDER = 'ollama'; process.env.LLM_BASE_URL = 'http://127.0.0.1:' + mock.address().port + '/v1'; process.env.LLM_MODEL = 'test-model';
   const server = require('./server.js');
+  const { raw, adminClient } = require('./testlib.js');
   server.listen(0, '127.0.0.1', async () => {
     const base = 'http://127.0.0.1:' + server.address().port;
-    const call = async (m, p, b) => { const r = await fetch(base + '/api/' + p, { method: m, headers: { 'content-type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }); return r.headers.get('content-type').startsWith('application/json') ? r.json() : r.text(); };
     try {
+      const cookie = await adminClient(base);
+      const call = async (m, p, b) => (await raw(base, m, p, b, cookie)).body;
       const lead = await call('POST', 'leads', { name: 'Alex', country: 'Spain', mode: 'buy', seats: 60, rangeNm: 700, budget: 9000000 });
       const draftFor = async (offer, text) => { reply = text; let d = await call('POST', 'deals', { leadId: lead.id, aircraftId: 'TP-01' }); d = await call('POST', `deals/${d.id}/offer`, { offer }); return [d, d.messages.find((m) => m.status === 'draft')]; };
       // good output is used, and the request carries no private limits

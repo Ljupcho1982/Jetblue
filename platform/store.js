@@ -31,11 +31,12 @@ Negotiation: understand priorities before price; trade concessions rather than o
 
 function load() {
   try { return JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch {
-    return { inventory: Logic.INVENTORY, leads: [], deals: [], learned: [], activity: [], playbook: defaultPlaybook() };
+    return { inventory: Logic.INVENTORY, leads: [], deals: [], learned: [], activity: [], playbook: defaultPlaybook(), users: [], sessions: [] };
   }
 }
 let db = load();
-function save() { fs.mkdirSync(path.dirname(FILE), { recursive: true }); fs.writeFileSync(FILE, JSON.stringify(db, null, 2)); }
-function activity(msg) { db.activity.unshift({ at: new Date().toISOString(), msg }); db.activity = db.activity.slice(0, 100); }
+db.users = db.users || []; db.sessions = db.sessions || [];
+function save() { fs.mkdirSync(path.dirname(FILE), { recursive: true }); fs.writeFileSync(FILE, JSON.stringify(db, null, 2), { mode: 0o600 }); }
+function activity(msg, who) { db.activity.unshift({ at: new Date().toISOString(), msg, who }); db.activity = db.activity.slice(0, 100); }
 
 module.exports = { get db() { return db; }, save, activity, defaultPlaybook };

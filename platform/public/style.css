@@ -36,3 +36,9 @@ th { color:var(--muted); font-weight:500; font-size:12px; }
 .hidden { display:none; }
 .limits { background:var(--bg); border:1px dashed var(--warn); border-radius:6px; padding:6px 10px; font-size:13px; margin-top:6px; }
 @media (max-width:760px) { .shell { grid-template-columns:1fr; } nav { flex-direction:row; flex-wrap:wrap; } nav .brand, nav .spacer, nav .muted { display:none; } .split { grid-template-columns:1fr; } main { padding:12px; } }
+
+.auth { max-width:380px; margin:10vh auto; }
+.auth .card { padding:24px; }
+.err { color:var(--bad); font-size:13px; min-height:1em; margin-top:8px; }
+#userBox { color:#c9d3e6; padding:0 8px 8px; } #userBox button { background:transparent; border:1px solid #3a4a70; color:#c9d3e6; padding:3px 10px; margin:6px 0 0; font-size:12px; }
+body.authed-out .shell { display:block; } body.authed-out nav { display:none; }

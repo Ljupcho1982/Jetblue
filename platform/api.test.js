@@ -3,10 +3,12 @@ process.env.DB_FILE = require('path').join(require('os').tmpdir(), 'deal-test-' 
 delete process.env.ANTHROPIC_API_KEY;
 const assert = require('assert');
 const server = require('./server.js');
+const { raw, adminClient } = require('./testlib.js');
 server.listen(0, '127.0.0.1', async () => {
   const base = 'http://127.0.0.1:' + server.address().port;
-  const call = async (m, p, b) => { const r = await fetch(base + '/api/' + p, { method: m, headers: { 'content-type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }); return { s: r.status, j: await r.json() }; };
   try {
+    const cookie = await adminClient(base);
+    const call = async (m, p, b) => { const r = await raw(base, m, p, b, cookie); return { s: r.status, j: r.body }; };
     const lead = (await call('POST', 'leads', { name: 'Alex', country: 'Spain', mode: 'buy', seats: 60, rangeNm: 700, budget: 9000000 })).j;
     assert.equal(lead.status, 'qualified'); assert.ok(lead.matches.length);
     const bad = (await call('POST', 'leads', { name: 'X', country: 'Iran', mode: 'buy' })).j;
