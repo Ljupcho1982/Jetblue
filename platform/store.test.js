@@ -7,7 +7,7 @@ const store = require('./store.js');
 const Logic = require('./logic.js');
 
 // --- schema, seed, constraints ---
-assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 1);
+assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 2);
 assert.equal(store.db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
 assert.equal(store.aircraft.list().length, Logic.INVENTORY.length);
 assert.equal(store.playbook.get().scenarios.length, 6);

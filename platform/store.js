@@ -43,6 +43,11 @@ const MIGRATIONS = [`
   CREATE TABLE learned (id INTEGER PRIMARY KEY AUTOINCREMENT, situation TEXT NOT NULL, reply TEXT NOT NULL, created_at TEXT NOT NULL);
   CREATE TABLE activity (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, msg TEXT NOT NULL, who TEXT);
   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+`, `
+  ALTER TABLE leads ADD COLUMN email TEXT;
+  ALTER TABLE messages ADD COLUMN delivery_status TEXT;
+  ALTER TABLE messages ADD COLUMN delivery_error TEXT;
+  ALTER TABLE messages ADD COLUMN delivered_at TEXT;
 `];
 function migrate() {
   let v = db.prepare('PRAGMA user_version').get().user_version;
@@ -128,11 +133,12 @@ const aircraft = {
 };
 
 // ---- leads ----
-const leadRow = (r) => r && ({ id: r.id, createdAt: r.created_at, name: r.name, company: r.company, country: r.country, status: r.status, request: unj(r.request), screening: unj(r.screening), matches: unj(r.matches) });
+const leadRow = (r) => r && ({ id: r.id, createdAt: r.created_at, name: r.name, company: r.company, email: r.email, country: r.country, status: r.status, request: unj(r.request), screening: unj(r.screening), matches: unj(r.matches) });
 const leads = {
   list: () => q('SELECT * FROM leads ORDER BY created_at DESC, rowid DESC').all().map(leadRow),
   get: (id) => leadRow(q('SELECT * FROM leads WHERE id=?').get(id)),
-  insert: (l) => { q('INSERT INTO leads (id,created_at,name,company,country,status,request,screening,matches) VALUES (?,?,?,?,?,?,?,?,?)').run(l.id, l.createdAt, l.name, l.company ?? null, l.country ?? null, l.status, j(l.request), j(l.screening), j(l.matches)); },
+  insert: (l) => { q('INSERT INTO leads (id,created_at,name,company,email,country,status,request,screening,matches) VALUES (?,?,?,?,?,?,?,?,?,?)').run(l.id, l.createdAt, l.name, l.company ?? null, l.email ?? null, l.country ?? null, l.status, j(l.request), j(l.screening), j(l.matches)); },
+  setEmail: (id, email) => { q('UPDATE leads SET email=? WHERE id=?').run(email, id); },
 };
 
 // ---- deals & messages ----
@@ -140,6 +146,9 @@ const msgRow = (r) => {
   const m = { id: r.id, role: r.role, text: r.text, at: r.at };
   if (r.role === 'assistant') Object.assign(m, { status: r.status, action: r.action, price: r.price, flags: unj(r.flags) || [], note: r.note, source: r.source, facts: unj(r.facts), original: r.original });
   if (r.approved_by) m.approvedBy = r.approved_by;
+  if (r.delivery_status) m.deliveryStatus = r.delivery_status;
+  if (r.delivery_error) m.deliveryError = r.delivery_error;
+  if (r.delivered_at) m.deliveredAt = r.delivered_at;
   if (r.sent_at) m.sentAt = r.sent_at;
   return m;
 };
@@ -160,6 +169,9 @@ const deals = {
   addDraft: (dealId, m) => { q("INSERT INTO messages (id,deal_id,role,status,action,price,flags,note,text,source,facts,original,at) VALUES (?,?,'assistant','draft',?,?,?,?,?,?,?,?,?)").run(m.id, dealId, m.action, m.price ?? null, j(m.flags || []), m.note, m.text, m.source, m.facts ? j(m.facts) : null, m.original, now()); },
   message: (dealId, id) => { const r = q('SELECT * FROM messages WHERE deal_id=? AND id=?').get(dealId, id); return r && msgRow(r); },
   approve: (id, text, by) => { q("UPDATE messages SET status='sent', text=?, approved_by=?, sent_at=? WHERE id=? AND status='draft'").run(text, by, now(), id); },
+  // Compare-and-set so two requests can never both send the same message.
+  claimDelivery: (id) => q("UPDATE messages SET delivery_status='sending', delivery_error=NULL WHERE id=? AND status='sent' AND (delivery_status IS NULL OR delivery_status IN ('failed','skipped','blocked'))").run(id).changes === 1,
+  setDelivery: (id, status, error) => { q('UPDATE messages SET delivery_status=?, delivery_error=?, delivered_at=? WHERE id=?').run(status, error ? String(error).slice(0, 300) : null, status === 'sent' ? now() : null, id); },
   reject: (id) => { q("UPDATE messages SET status='rejected' WHERE id=? AND status='draft'").run(id); },
 };
 

@@ -17,6 +17,15 @@ const aircraft = (id) => S.inventory.find((a) => a.id === id);
 const priceOf = (a, mode) => (mode === 'lease' ? fmt(a.leaseMonthly) + '/mo' : fmt(a.listPrice));
 const form = (el) => Object.fromEntries(new FormData(el));
 
+function deliveryHtml(m) {
+  const w = can('deals.write'), st = m.deliveryStatus;
+  if (st === 'sent') return `<div class="small ok">✓ Emailed to buyer ${m.deliveredAt ? new Date(m.deliveredAt).toLocaleString() : ''}</div>`;
+  if (st === 'sending') return '<div class="small muted">Sending…</div>';
+  if (!st && !S.mail.enabled) return '<div class="small muted">Not emailed (email is not configured)</div>';
+  const label = { failed: 'Email failed', blocked: 'Email blocked', skipped: 'Not emailed' }[st] || 'Not emailed yet';
+  return `<div class="small warn">${label}${m.deliveryError ? ': ' + esc(m.deliveryError) : ''}</div>` + (w ? `<div>${st === 'skipped' ? `<button class="small secondary" data-addemail="${m.id}">Add buyer email</button> ` : ''}<button class="small secondary" data-send="${m.id}">${st ? 'Retry email' : 'Send email'}</button></div>` : '');
+}
+
 const pages = {
   dashboard() {
     const pending = S.deals.flatMap((d) => d.messages.filter((m) => m.status === 'draft').map(() => d)).length;
@@ -61,13 +70,13 @@ const pages = {
   leads() {
     return `<h1>Leads</h1>
     ${can('leads.write') ? `<div class="card"><h2>New inquiry</h2><form id="leadForm"><div class="grid">
-      <label>Name<input name="name" required></label><label>Company<input name="company"></label><label>Country<input name="country" required></label>
+      <label>Name<input name="name" required></label><label>Company<input name="company"></label><label>Buyer email<input name="email" type="email" autocomplete="off"></label><label>Country<input name="country" required></label>
       <label>Buy or lease<select name="mode"><option value="buy">Buy</option><option value="lease">Lease</option></select></label>
       <label>Type<select name="type"><option value="any">Any</option><option>turboprop</option><option>light jet</option><option>regional jet</option><option>narrowbody</option></select></label>
       <label>Min seats<input name="seats" type="number"></label><label>Min range (nm)<input name="rangeNm" type="number"></label>
       <label>Max age (yrs)<input name="maxAge" type="number"></label><label>Budget (per month if lease)<input name="budget" type="number"></label>
     </div><button>Screen and match</button></form></div>` : ''}
-    ${S.leads.map((l) => `<div class="card"><b>${esc(l.name)}</b> ${esc(l.company || '')} <span class="muted">· ${esc(l.country)} · ${l.request.mode}</span>
+    ${S.leads.map((l) => `<div class="card"><b>${esc(l.name)}</b> ${esc(l.company || '')} <span class="muted">· ${esc(l.country)} · ${l.request.mode}${l.email ? ' · ' + esc(l.email) : ''}</span>
       <span class="tag ${l.screening.ok ? 'ok' : 'bad'}">${l.screening.ok ? 'screening passed (demo)' : 'compliance hold: ' + esc(l.screening.reason)}</span>
       ${l.matches.map((m) => { const a = aircraft(m.aircraftId); return a ? `<div style="margin-top:8px">${esc(a.model)} <span class="tag">${a.id}</span> <span class="tag">match ${m.score}</span> ${priceOf(a, l.request.mode)} <span class="warn small">${esc(m.reasons.join(', '))}</span> ${can('deals.write') ? `<button class="small secondary" data-open="${l.id}|${a.id}">Open deal</button>` : ''}</div>` : ''; }).join('')}
       ${l.screening.ok && !l.matches.length ? '<p class="muted small">No matching aircraft. Source inventory.</p>' : ''}</div>`).join('')}`;
@@ -90,7 +99,7 @@ const pages = {
           m.status === 'draft' ? `<div class="msg assistant draft"><b>Draft (${m.action})</b> <span class="tag">${esc(m.source)}</span>
             ${m.flags.map((f) => `<div class="warn small">⚠ ${esc(f)}</div>`).join('')}<textarea id="draftText" rows="5">${esc(m.text)}</textarea><div class="muted small">${esc(m.note)}</div>
             <button data-approve="${m.id}">Approve and send</button><button class="secondary" data-reject="${m.id}">Reject</button></div>`
-          : `<div class="msg assistant">${esc(m.text)}</div>`).join('')}</div>
+          : `<div class="msg assistant">${esc(m.text)}${deliveryHtml(m)}</div>`).join('')}</div>
         ${['LOI', 'escalated'].includes(d.stage) ? `<p class="${d.stage === 'LOI' ? 'ok' : 'bad'}">${d.stage === 'LOI' ? 'Ready for letter of intent (human step).' : 'Escalated to the human broker.'}</p>` : ''}
         ${!pending && d.stage === 'negotiating' && can('deals.write') ? `<div class="grid"><label>Buyer's offer (${d.mode === 'lease' ? 'per month' : 'USD'})<input id="offer" type="number"></label>${d.mode === 'lease' ? '<label>Term (months)<input id="term" type="number" value="36"></label>' : ''}</div><button id="sendOffer">Submit buyer's offer</button>` : ''}</div>`;
     }
@@ -100,6 +109,12 @@ const pages = {
     document.querySelectorAll('[data-deal]').forEach((el) => el.onclick = () => { selectedDeal = el.dataset.deal; render(); });
     const send = $('#sendOffer'); if (send) send.onclick = async () => { const offer = $('#offer').value; if (!offer) return; send.disabled = true; await call('POST', `deals/${selectedDeal}/offer`, { offer, termMonths: $('#term')?.value }); await render(); };
     const ap = $('[data-approve]'); if (ap) ap.onclick = async () => { await call('POST', `deals/${selectedDeal}/messages/${ap.dataset.approve}/approve`, { text: $('#draftText').value }); await render(); };
+    document.querySelectorAll('[data-send]').forEach((b) => b.onclick = async () => { b.disabled = true; await call('POST', `deals/${selectedDeal}/messages/${b.dataset.send}/send`).catch(() => {}); await render(); });
+    document.querySelectorAll('[data-addemail]').forEach((b) => b.onclick = async () => {
+      const email = prompt('Buyer email address'); if (!email) return;
+      const d = S.deals.find((x) => x.id === selectedDeal);
+      await call('PUT', 'leads/' + d.leadId, { email }).catch(() => {}); await call('POST', `deals/${selectedDeal}/messages/${b.dataset.addemail}/send`).catch(() => {}); await render();
+    });
     const rj = $('[data-reject]'); if (rj) rj.onclick = async () => { await call('POST', `deals/${selectedDeal}/messages/${rj.dataset.reject}/reject`); await render(); };
   },
 

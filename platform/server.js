@@ -7,6 +7,7 @@ const Logic = require('./logic.js');
 const store = require('./store.js');
 const llm = require('./llm.js');
 const auth = require('./auth.js');
+const mailer = require('./mailer.js');
 
 const PUBLIC = path.join(__dirname, 'public');
 const PRIVATE_AIRCRAFT = ['floor', 'maxDiscountPct', 'minLeaseMonthly'];
@@ -27,10 +28,27 @@ const httpErr = (status, message) => Object.assign(new Error(message), { status 
 function redactedState(st) {
   return {
     inventory: st.inventory.map((a) => Object.fromEntries(Object.entries(a).filter(([k]) => !PRIVATE_AIRCRAFT.includes(k)))),
-    leads: st.leads,
-    deals: st.deals.map((d) => ({ ...d, messages: d.messages.filter((x) => x.role === 'buyer' || x.status === 'sent').map(({ facts, original, note, flags, source, ...x }) => x) })),
-    activity: st.activity, playbook: null, learned: [], llm: { enabled: st.llm.enabled },
+    leads: st.leads.map(({ email, ...l }) => l),
+    deals: st.deals.map((d) => ({ ...d, messages: d.messages.filter((x) => x.role === 'buyer' || x.status === 'sent').map(({ facts, original, note, flags, source, deliveryError, ...x }) => x) })),
+    activity: st.activity, playbook: null, learned: [], llm: { enabled: st.llm.enabled }, mail: { enabled: st.mail.enabled },
   };
+}
+
+// Sends an approved message to the buyer. Never throws: the outcome is recorded on the message.
+async function deliver(deal, messageId, approver) {
+  if (!mailer.enabled()) return; // delivery_status stays empty: nothing was attempted
+  const msg = store.deals.message(deal.id, messageId);
+  if (!msg || msg.status !== 'sent') return;
+  const lead = store.leads.get(deal.leadId), a = store.aircraft.get(deal.aircraftId);
+  if (!lead.email) { if (!store.deals.claimDelivery(messageId)) return; store.deals.setDelivery(messageId, 'skipped', 'No buyer email on this lead'); return; }
+  if (!store.deals.claimDelivery(messageId)) return; // someone else is sending, or it already went out
+  const company = store.playbook.get().company;
+  const text = `${msg.text}\n\n--\n${company}. This message was drafted with AI assistance and approved by ${approver.name}.`;
+  try {
+    const r = await mailer.send({ to: lead.email, subject: `Re: ${a ? a.model + ' (' + a.id + ')' : 'your enquiry'}`, text, replyTo: approver.email });
+    if (r.ok) { store.deals.setDelivery(messageId, 'sent'); store.activity.add(`Emailed buyer on deal ${deal.id}`, approver.email); }
+    else { store.deals.setDelivery(messageId, 'blocked', r.error); store.activity.add(`Email blocked on deal ${deal.id}: ${r.error}`, approver.email); }
+  } catch (e) { store.deals.setDelivery(messageId, 'failed', e.message); store.activity.add(`Email failed on deal ${deal.id}`, approver.email); }
 }
 
 async function api(req, url, ctx) {
@@ -107,7 +125,7 @@ async function api(req, url, ctx) {
   }
 
   if (p[0] === 'state' && m === 'GET') {
-    const st = { inventory: store.aircraft.list(), leads: store.leads.list(), deals: store.deals.list(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe() };
+    const st = { inventory: store.aircraft.list(), leads: store.leads.list(), deals: store.deals.list(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe(), mail: mailer.describe() };
     return auth.can(user, 'view.full') ? st : redactedState(st);
   }
 
@@ -125,6 +143,12 @@ async function api(req, url, ctx) {
     }
   }
 
+  if (p[0] === 'leads' && m === 'PUT' && p[1]) {
+    need('leads.write');
+    if (!store.leads.get(p[1])) throw httpErr(404, 'lead not found');
+    if (!mailer.validEmail(b.email)) throw httpErr(400, 'Invalid buyer email');
+    store.leads.setEmail(p[1], b.email.toLowerCase()); act('Buyer email updated on lead ' + p[1]); return store.leads.get(p[1]);
+  }
   if (p[0] === 'leads' && m === 'POST') {
     need('leads.write');
     const request = { mode: b.mode, type: b.type, seats: num(b.seats), rangeNm: num(b.rangeNm), maxAge: num(b.maxAge), budget: num(b.budget) };
@@ -132,6 +156,7 @@ async function api(req, url, ctx) {
     const lead = { id: id(), createdAt: new Date().toISOString(), name: b.name, company: b.company, country: b.country, request, screening, status: screening.ok ? 'qualified' : 'compliance-hold',
       matches: screening.ok ? Logic.matchAircraft(request, store.aircraft.list()).map((x) => ({ aircraftId: x.aircraft.id, score: x.score, reasons: x.reasons })) : [] };
     if (!lead.name) throw httpErr(400, 'name required');
+    if (b.email) { if (!mailer.validEmail(b.email)) throw httpErr(400, 'Invalid buyer email'); lead.email = b.email.toLowerCase(); }
     store.tx(() => { store.leads.insert(lead); act(`Lead ${lead.name}: ${lead.status}, ${lead.matches.length} match(es)`); });
     return lead;
   }
@@ -175,6 +200,14 @@ async function api(req, url, ctx) {
         if (edited) store.learned.add({ situation: msg.action + ' (broker-edited)', reply: text }); // learn from broker edits
         act(`Approved message on deal ${d.id}` + (edited ? ' (edited, saved as example)' : ''));
       });
+      await deliver(d, msg.id, user);
+      return store.deals.get(d.id);
+    }
+    if (msg && p[4] === 'send' && m === 'POST') { // retry a failed, blocked or skipped delivery
+      if (!mailer.enabled()) throw httpErr(409, 'Email is not configured');
+      if (msg.status !== 'sent') throw httpErr(409, 'Only approved messages can be emailed');
+      if (msg.deliveryStatus === 'sent' || msg.deliveryStatus === 'sending') throw httpErr(409, 'Already ' + msg.deliveryStatus);
+      await deliver(d, msg.id, user);
       return store.deals.get(d.id);
     }
     if (msg && p[4] === 'reject' && m === 'POST') {
