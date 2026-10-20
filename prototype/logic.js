@@ -1,0 +1,84 @@
+// Core rules for the aircraft negotiator prototype. Works in the browser and in Node.
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.Logic = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  // Mock inventory. floor and maxDiscountPct are internal and must never be shown to buyers.
+  const INVENTORY = [
+    { id: 'TP-01', model: 'ATR 72-500', type: 'turboprop', year: 2008, hours: 38000, seats: 70, rangeNm: 825, location: 'Madrid', listPrice: 9500000, floor: 8600000, maxDiscountPct: 8, leaseMonthly: 95000, minLeaseMonthly: 86000, minTermMonths: 36 },
+    { id: 'TP-02', model: 'Dash 8-400', type: 'turboprop', year: 2012, hours: 22000, seats: 74, rangeNm: 1100, location: 'Toronto', listPrice: 14000000, floor: 12800000, maxDiscountPct: 8, leaseMonthly: 130000, minLeaseMonthly: 118000, minTermMonths: 48 },
+    { id: 'LJ-01', model: 'Embraer Phenom 300', type: 'light jet', year: 2015, hours: 4200, seats: 8, rangeNm: 1971, location: 'Frankfurt', listPrice: 6200000, floor: 5700000, maxDiscountPct: 7, leaseMonthly: 62000, minLeaseMonthly: 56000, minTermMonths: 24 },
+    { id: 'RJ-01', model: 'Embraer E175', type: 'regional jet', year: 2014, hours: 31000, seats: 78, rangeNm: 2200, location: 'Dublin', listPrice: 21000000, floor: 19000000, maxDiscountPct: 9, leaseMonthly: 190000, minLeaseMonthly: 172000, minTermMonths: 60 },
+  ];
+
+  // Placeholder only. Real screening must use a proper sanctions/KYC provider.
+  const SANCTIONED = ['north korea', 'iran', 'syria', 'cuba'];
+
+  function screen(buyer) {
+    const c = (buyer.country || '').trim().toLowerCase();
+    return SANCTIONED.includes(c) ? { ok: false, reason: 'Country on screening list' } : { ok: true };
+  }
+
+  // Score 0..100: hard requirements must pass, then closeness on budget and age.
+  function matchAircraft(req, inventory = INVENTORY) {
+    const price = (a) => (req.mode === 'lease' ? a.leaseMonthly : a.listPrice);
+    return inventory
+      .map((a) => {
+        const reasons = [];
+        if (req.seats && a.seats < req.seats) reasons.push('too few seats');
+        if (req.rangeNm && a.rangeNm < req.rangeNm) reasons.push('range too short');
+        if (req.maxAge && new Date().getFullYear() - a.year > req.maxAge) reasons.push('older than requested');
+        if (req.type && req.type !== 'any' && a.type !== req.type) reasons.push('different type');
+        if (reasons.length) return { aircraft: a, score: 0, reasons };
+        let score = 70;
+        if (req.budget) {
+          const over = (price(a) - req.budget) / req.budget;
+          if (over <= 0) score += 30;
+          else if (over <= 0.15) score += 30 - over * 150; // within reach through negotiation
+          else reasons.push('over budget');
+        } else score += 15;
+        return { aircraft: a, score: Math.max(0, Math.round(score)), reasons };
+      })
+      .filter((m) => m.score > 0)
+      .sort((x, y) => y.score - x.score);
+  }
+
+  const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US');
+
+  // Decide how to respond to a buyer's offer. Returns a DRAFT; a human must approve it.
+  // Sale: offer is the price. Lease: offer is the monthly rate.
+  function negotiate({ aircraft: a, mode, offer, round, termMonths }) {
+    const lease = mode === 'lease';
+    const list = lease ? a.leaseMonthly : a.listPrice;
+    const floor = lease ? a.minLeaseMonthly : a.floor;
+    const discountFloor = list * (1 - a.maxDiscountPct / 100);
+    const limit = Math.max(floor, lease ? 0 : discountFloor);
+    const unit = lease ? ' per month' : '';
+    const flags = [];
+
+    if (lease && termMonths && termMonths < a.minTermMonths)
+      flags.push('Requested term ' + termMonths + ' months is below the minimum term.');
+
+    if (offer >= limit && !flags.length) {
+      return draft('accept', offer, `Thank you for your offer of ${fmt(offer)}${unit} on the ${a.model} (${a.id}). We are able to proceed on those terms, subject to contract, inspection and broker confirmation. Next step: a letter of intent.`, [], 'Within limits. Recommend LOI.');
+    }
+    if (offer < limit * 0.85 || round >= 4) {
+      return draft('escalate', null, `Thank you for your interest in the ${a.model}. Let me bring in our broker to discuss how we can find a workable structure.`, ['Offer far below limits or negotiation stalled after ' + round + ' rounds.', ...flags], 'Escalate to human broker.');
+    }
+    // Counter: move from list toward the limit by round, never below the limit.
+    const step = Math.min(1, 0.4 + 0.2 * round);
+    let counter = Math.max(limit, list - (list - limit) * step);
+    counter = Math.max(counter, offer);
+    counter = Math.round(counter / (lease ? 500 : 10000)) * (lease ? 500 : 10000);
+    counter = Math.max(counter, limit);
+    const concession = round >= 2 ? ' We can also offer a flexible inspection window.' : '';
+    const termNote = flags.length ? ` We would need a minimum term of ${a.minTermMonths} months.` : '';
+    return draft('counter', counter, `Thank you for your offer of ${fmt(offer)}${unit} on the ${a.model} (${a.id}). We cannot accept it, but we can propose ${fmt(counter)}${unit}.${concession}${termNote} This is subject to contract and broker confirmation.`, flags, 'Counter inside limits. Review before sending.');
+  }
+
+  function draft(action, price, message, flags, note) {
+    return { action, price, message, flags, internalNote: note, status: 'DRAFT' };
+  }
+
+  return { INVENTORY, screen, matchAircraft, negotiate, fmt };
+});
