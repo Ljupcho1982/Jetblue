@@ -10,6 +10,15 @@ const auth = require('./auth.js');
 const mailer = require('./mailer.js');
 
 const PUBLIC = path.join(__dirname, 'public');
+// TRUST_PROXY=<number of reverse proxies in front>. With 0 the socket address is used. Behind a proxy, take the
+// address the nearest trusted proxy appended to X-Forwarded-For, so login lockouts are per user, not per proxy.
+const TRUST_PROXY = Math.max(0, parseInt(process.env.TRUST_PROXY || '0', 10) || 0);
+function clientIp(req) {
+  const sock = req.socket.remoteAddress || '';
+  if (!TRUST_PROXY) return sock;
+  const hops = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return hops[hops.length - TRUST_PROXY] || sock;
+}
 const PRIVATE_AIRCRAFT = ['floor', 'maxDiscountPct', 'minLeaseMonthly'];
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 const id = () => crypto.randomUUID().slice(0, 8);
@@ -270,13 +279,17 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const send = (status, headers, data) => { res.writeHead(status, { ...SECURITY, ...headers }); res.end(data); };
   try {
+    if (url.pathname === '/healthz') { // liveness + database check for load balancers; exposes no data
+      store.db.prepare('SELECT 1').get();
+      return send(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }, '{"ok":true}');
+    }
     if (url.pathname.startsWith('/api/')) {
       if (req.method !== 'GET') { // CSRF defence in depth on top of SameSite=Strict
         if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) throw httpErr(403, 'Cross-origin request blocked');
         if (!String(req.headers['content-type'] || '').startsWith('application/json')) throw httpErr(415, 'JSON required');
       }
       const token = auth.parseCookies(req.headers.cookie).sid;
-      const ctx = { token, user: auth.sessionUser(token), ip: req.socket.remoteAddress || '' };
+      const ctx = { token, user: auth.sessionUser(token), ip: clientIp(req) };
       const out = await api(req, url, ctx);
       if (out && out.__raw !== undefined) return send(200, { 'content-type': 'application/x-ndjson', 'content-disposition': 'attachment; filename=finetune.jsonl', 'x-example-count': String(out.count), 'cache-control': 'no-store' }, out.__raw);
       const headers = { 'content-type': 'application/json', 'cache-control': 'no-store' };
@@ -292,8 +305,36 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// Scheduled backups inside the app process: BACKUP_DIR=/backups BACKUP_EVERY_HOURS=24 BACKUP_KEEP=14
+function startBackups() {
+  const dir = process.env.BACKUP_DIR; if (!dir) return null;
+  const every = (Number(process.env.BACKUP_EVERY_HOURS) || 24) * 3600e3, keep = Number(process.env.BACKUP_KEEP) || 14;
+  const run = () => {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const dest = path.join(dir, 'platform-' + new Date().toISOString().replace(/[:.]/g, '-') + '.db');
+      store.backup(dest); fs.chmodSync(dest, 0o600);
+      const files = fs.readdirSync(dir).filter((f) => /^platform-.*\.db$/.test(f)).sort();
+      for (const f of files.slice(0, Math.max(0, files.length - keep))) fs.unlinkSync(path.join(dir, f));
+      console.log('backup written:', dest);
+    } catch (e) { console.error('backup failed:', e.message); }
+  };
+  setTimeout(run, 5000).unref();
+  return setInterval(run, every).unref();
+}
+
 if (require.main === module) {
-  const port = process.env.PORT || 3000;
-  server.listen(port, '127.0.0.1', () => console.log(`Platform on http://127.0.0.1:${port}  (wording: ${llm.enabled() ? JSON.stringify(llm.describe()) : 'templates (set LLM_PROVIDER=ollama to use an open-source model)'})`));
+  const port = process.env.PORT || 3000, host = process.env.HOST || '127.0.0.1';
+  server.listen(port, host, () => console.log(`Platform on http://${host}:${port}  (wording: ${llm.enabled() ? JSON.stringify(llm.describe()) : 'templates (set LLM_PROVIDER=ollama to use an open-source model)'}; email: ${mailer.enabled() ? mailer.describe().provider : 'off'})`));
+  if (host !== '127.0.0.1' && host !== 'localhost' && process.env.COOKIE_SECURE !== '1') console.warn('warning: listening beyond localhost without COOKIE_SECURE=1; serve it over HTTPS and set COOKIE_SECURE=1');
+  startBackups();
+  let closing = false;
+  const shutdown = (sig) => { // finish in-flight requests, checkpoint the WAL, then exit
+    if (closing) return; closing = true; console.log(sig + ' received, shutting down');
+    const force = setTimeout(() => process.exit(1), 10000); force.unref();
+    server.close(() => { try { store.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); store.db.close(); } catch (e) { console.error(e.message); } process.exit(0); });
+    server.closeIdleConnections();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM')); process.on('SIGINT', () => shutdown('SIGINT'));
 }
 module.exports = server;

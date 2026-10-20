@@ -1,0 +1,40 @@
+# Production-style stack: app + Caddy (automatic HTTPS). Optional local model: docker compose --profile ollama up -d
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRUST_PROXY: "1"      # exactly one reverse proxy (Caddy) in front
+      COOKIE_SECURE: "1"    # cookies only over HTTPS
+    volumes:
+      - data:/data          # SQLite database
+      - backups:/backups    # daily backups, last 14 kept (BACKUP_EVERY_HOURS / BACKUP_KEEP to change)
+    expose: ["3000"]        # reachable only through Caddy, never published directly
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app: { condition: service_healthy }
+
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama
+    restart: unless-stopped
+    volumes: ["ollama:/root/.ollama"]
+    # GPU: add a `deploy.resources.reservations.devices` block per Docker's GPU docs.
+
+volumes:
+  data:
+  backups:
+  caddy_data:
+  caddy_config:
+  ollama:

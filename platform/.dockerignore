@@ -1,0 +1,9 @@
+data
+backups
+node_modules
+finetune
+*.test.js
+testlib.js
+*.md
+.env
+.git
