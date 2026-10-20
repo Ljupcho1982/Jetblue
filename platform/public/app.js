@@ -10,7 +10,7 @@ async function call(method, path, body) {
   return j;
 }
 function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.remove('hidden'); setTimeout(() => t.classList.add('hidden'), 3000); }
-async function refresh() { S = await call('GET', 'state'); $('#llmStatus').textContent = S.llm.enabled ? 'Claude wording: ON' : 'Claude wording: off (templates)'; }
+async function refresh() { S = await call('GET', 'state'); $('#llmStatus').textContent = S.llm.enabled ? 'Model: ' + S.llm.provider + ' / ' + S.llm.model : 'Model: off (templates)'; }
 const aircraft = (id) => S.inventory.find((a) => a.id === id);
 const priceOf = (a, mode) => (mode === 'lease' ? fmt(a.leaseMonthly) + '/mo' : fmt(a.listPrice));
 const form = (el) => Object.fromEntries(new FormData(el));
@@ -123,6 +123,7 @@ const pages = {
       <h3>Add scenario</h3><form id="scForm" class="grid"><label>Name<input name="name" required></label><label>Aircraft<select name="aircraftId">${S.inventory.map((a) => `<option>${esc(a.id)}</option>`).join('')}</select></label>
         <label>Mode<select name="mode"><option>buy</option><option>lease</option></select></label><label>Offer<input name="offer" type="number" required></label><label>Round<input name="round" type="number" value="1"></label>
         <label>Term (lease)<input name="termMonths" type="number"></label><label>Expect<select name="expect"><option>accept</option><option>counter</option><option>escalate</option></select></label><div><button>Add</button></div></form></div>
+    <div class="card"><h2>Fine-tune an open-source model</h2><p class="muted small">Download broker-approved replies as chat-format JSONL, ready for LoRA fine-tuning (for example with Axolotl, Unsloth or llama-factory). Edited replies are the most valuable rows. Aim for hundreds of reviewed examples before fine-tuning.</p><a href="/api/export"><button class="secondary">Download finetune.jsonl</button></a></div>
     <div class="card"><h2>Reset</h2><button class="danger" id="reset">Reset all demo data</button></div>`;
   },
   trainingInit() {

@@ -24,7 +24,7 @@ async function api(req, url) {
   const m = req.method, p = url.pathname.replace(/^\/api\//, '').split('/');
   const b = ['POST', 'PUT'].includes(m) ? await body(req) : {};
 
-  if (p[0] === 'state' && m === 'GET') return { inventory: db.inventory, leads: db.leads, deals: db.deals, playbook: db.playbook, learned: db.learned, activity: db.activity, llm: { enabled: llm.enabled(), model: llm.MODEL } };
+  if (p[0] === 'state' && m === 'GET') return { inventory: db.inventory, leads: db.leads, deals: db.deals, playbook: db.playbook, learned: db.learned, activity: db.activity, llm: llm.describe() };
 
   if (p[0] === 'inventory') {
     if (m === 'POST') {
@@ -61,7 +61,7 @@ async function api(req, url) {
       const decision = Logic.negotiate({ aircraft: a, mode: d.mode, offer, round: d.round, termMonths: num(b.termMonths), rules: db.playbook.rules });
       const w = await llm.wordDraft({ decision, aircraft: a, buyer: { name: d.buyer }, offer, mode: d.mode, playbook: db.playbook, learned: db.learned });
       d.messages.push({ id: id(), role: 'buyer', text: `Offer: ${Logic.fmt(offer)}${d.mode === 'lease' ? '/month' : ''}`, at: new Date().toISOString() });
-      d.messages.push({ id: id(), role: 'assistant', status: 'draft', action: decision.action, price: decision.price, flags: decision.flags, note: decision.internalNote, text: w.text, source: w.source, original: w.text, at: new Date().toISOString() });
+      d.messages.push({ id: id(), role: 'assistant', status: 'draft', action: decision.action, price: decision.price, flags: decision.flags, note: decision.internalNote, text: w.text, source: w.source, facts: w.facts, original: w.text, at: new Date().toISOString() });
       store.activity(`Draft (${decision.action}) for deal ${d.id}`); store.save(); return d;
     }
     const msg = d.messages.find((x) => x.id === p[3]);
@@ -105,6 +105,12 @@ async function api(req, url) {
     });
     return { passed: rows.filter((r) => r.pass).length, total: rows.length, rows };
   }
+  if (p[0] === 'export' && m === 'GET') { // fine-tuning data (chat JSONL) from broker-approved messages
+    const sys = db.playbook.systemPrompt, rows = [];
+    for (const d of db.deals) for (const x of d.messages) if (x.role === 'assistant' && x.status === 'sent' && x.facts)
+      rows.push({ messages: [{ role: 'system', content: sys }, { role: 'user', content: JSON.stringify(x.facts) }, { role: 'assistant', content: x.text }] });
+    return { __raw: rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''), count: rows.length };
+  }
   if (p[0] === 'reset' && m === 'POST') { Object.assign(store.db, { inventory: Logic.INVENTORY, leads: [], deals: [], learned: [], activity: [], playbook: store.defaultPlaybook() }); store.save(); return { ok: true }; }
   throw Object.assign(new Error('not found'), { status: 404 });
 }
@@ -114,6 +120,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (url.pathname.startsWith('/api/')) {
       const out = await api(req, url);
+      if (out && out.__raw !== undefined) { res.writeHead(200, { 'content-type': 'application/x-ndjson', 'content-disposition': 'attachment; filename=finetune.jsonl', 'x-example-count': String(out.count) }); return res.end(out.__raw); }
       res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(out));
     }
     if (url.pathname === '/logic.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(fs.readFileSync(path.join(__dirname, 'logic.js'))); }
@@ -127,6 +134,6 @@ const server = http.createServer(async (req, res) => {
 
 if (require.main === module) {
   const port = process.env.PORT || 3000;
-  server.listen(port, '127.0.0.1', () => console.log(`Platform on http://127.0.0.1:${port}  (Claude wording: ${llm.enabled() ? 'ON' : 'off, set ANTHROPIC_API_KEY'})`));
+  server.listen(port, '127.0.0.1', () => console.log(`Platform on http://127.0.0.1:${port}  (wording: ${llm.enabled() ? JSON.stringify(llm.describe()) : 'templates (set LLM_PROVIDER=ollama to use an open-source model)'})`));
 }
 module.exports = server;
