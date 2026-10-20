@@ -47,7 +47,10 @@
 
   // Decide how to respond to a buyer's offer. Returns a DRAFT; a human must approve it.
   // Sale: offer is the price. Lease: offer is the monthly rate.
-  function negotiate({ aircraft: a, mode, offer, round, termMonths }) {
+  const DEFAULT_RULES = { stepBase: 0.4, stepPerRound: 0.2, escalateBelowPct: 85, maxRounds: 4, disclaimer: 'This is subject to contract and broker confirmation.' };
+
+  function negotiate({ aircraft: a, mode, offer, round, termMonths, rules }) {
+    const R = Object.assign({}, DEFAULT_RULES, rules || {});
     const lease = mode === 'lease';
     const list = lease ? a.leaseMonthly : a.listPrice;
     const floor = lease ? a.minLeaseMonthly : a.floor;
@@ -62,23 +65,36 @@
     if (offer >= limit && !flags.length) {
       return draft('accept', offer, `Thank you for your offer of ${fmt(offer)}${unit} on the ${a.model} (${a.id}). We are able to proceed on those terms, subject to contract, inspection and broker confirmation. Next step: a letter of intent.`, [], 'Within limits. Recommend LOI.');
     }
-    if (offer < limit * 0.85 || round >= 4) {
+    if (offer < limit * (R.escalateBelowPct / 100) || round >= R.maxRounds) {
       return draft('escalate', null, `Thank you for your interest in the ${a.model}. Let me bring in our broker to discuss how we can find a workable structure.`, ['Offer far below limits or negotiation stalled after ' + round + ' rounds.', ...flags], 'Escalate to human broker.');
     }
     // Counter: move from list toward the limit by round, never below the limit.
-    const step = Math.min(1, 0.4 + 0.2 * round);
+    const step = Math.min(1, R.stepBase + R.stepPerRound * round);
     let counter = Math.max(limit, list - (list - limit) * step);
     counter = Math.max(counter, offer);
     counter = Math.round(counter / (lease ? 500 : 10000)) * (lease ? 500 : 10000);
     counter = Math.max(counter, limit);
     const concession = round >= 2 ? ' We can also offer a flexible inspection window.' : '';
     const termNote = flags.length ? ` We would need a minimum term of ${a.minTermMonths} months.` : '';
-    return draft('counter', counter, `Thank you for your offer of ${fmt(offer)}${unit} on the ${a.model} (${a.id}). We cannot accept it, but we can propose ${fmt(counter)}${unit}.${concession}${termNote} This is subject to contract and broker confirmation.`, flags, 'Counter inside limits. Review before sending.');
+    return draft('counter', counter, `Thank you for your offer of ${fmt(offer)}${unit} on the ${a.model} (${a.id}). We cannot accept it, but we can propose ${fmt(counter)}${unit}.${concession}${termNote} ${R.disclaimer}`, flags, 'Counter inside limits. Review before sending.');
   }
 
   function draft(action, price, message, flags, note) {
     return { action, price, message, flags, internalNote: note, status: 'DRAFT' };
   }
 
-  return { INVENTORY, screen, matchAircraft, negotiate, fmt };
+  // Guardrail for model-written text: only the decided price (and the buyer's own offer) may
+  // appear as dollar amounts, and internal limits must never leak.
+  function validateMessage(text, { allowed = [], secrets = [] }) {
+    const nums = (text.match(/\$?\d[\d,]*(\.\d+)?\s*(k|m|million)?/gi) || []).map((t) => t.trim());
+    const flat = text.replace(/,/g, '');
+    for (const sec of secrets) if (sec && flat.includes(String(Math.round(sec)))) return { ok: false, reason: 'leaks an internal limit' };
+    const allowedFlat = allowed.map((n) => String(Math.round(n)));
+    const dollars = (flat.match(/\$\s?\d+(\.\d+)?\s*(million|m|k)?|\$?\d{5,}/gi) || []).map((x) => x.replace(/[$\s]/g, '').toLowerCase());
+    for (const d of dollars) if (!allowedFlat.includes(d)) return { ok: false, reason: 'unapproved amount ' + d };
+    if (/guarantee|legally binding|we accept your offer and/i.test(text)) return { ok: false, reason: 'binding language' };
+    return { ok: true };
+  }
+
+  return { INVENTORY, DEFAULT_RULES, screen, matchAircraft, negotiate, validateMessage, fmt };
 });
