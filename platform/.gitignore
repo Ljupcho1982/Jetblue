@@ -1,2 +1,6 @@
 data/
+backups/
 node_modules/
+*.db
+*.db-wal
+*.db-shm

@@ -1,0 +1,12 @@
+{
+  "name": "aircraft-deal-platform",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Aircraft sales and leasing platform with an AI negotiation assistant",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --disable-warning=ExperimentalWarning test.js && node --disable-warning=ExperimentalWarning api.test.js && node --disable-warning=ExperimentalWarning llm.test.js && node --disable-warning=ExperimentalWarning auth.test.js && node --disable-warning=ExperimentalWarning store.test.js",
+    "backup": "node --disable-warning=ExperimentalWarning backup.js"
+  }
+}

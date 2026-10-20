@@ -95,8 +95,9 @@ server.listen(0, '127.0.0.1', async () => {
     assert.equal((await r('POST', 'login', { email: 'victim@x.com', password: 'wrong-wrong-wrong' })).status, 429);
 
     // Passwords are never stored in plain text
-    const stored = require('fs').readFileSync(process.env.DB_FILE, 'utf8');
-    assert.ok(!stored.includes(PASSWORD) && !stored.includes('another long password!'));
+    const { DatabaseSync } = require('node:sqlite');
+    const stored = JSON.stringify(new DatabaseSync(process.env.DB_FILE).prepare('SELECT * FROM users').all());
+    assert.ok(stored.includes('hash') && !stored.includes(PASSWORD) && !stored.includes('another long password!'));
     console.log('auth tests passed');
     process.exit(0);
   } catch (e) { console.error(e); process.exit(1); }

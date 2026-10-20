@@ -1,6 +1,7 @@
 // Zero-dependency auth: scrypt password hashes, server-side sessions in an HttpOnly cookie,
 // role permissions, and login throttling.
 const crypto = require('crypto');
+const store = require('./store.js');
 const { promisify } = require('util');
 const scrypt = promisify(crypto.scrypt);
 
@@ -36,24 +37,23 @@ function checkPassword(password, email) {
 }
 const validEmail = (e) => typeof e === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 200;
 
-function createSession(db, userId) {
+function createSession(userId) {
   const token = crypto.randomBytes(32).toString('hex');
-  db.sessions.push({ id: sha(token), userId, createdAt: Date.now(), lastSeen: Date.now() });
+  store.sessions.insert(sha(token), userId);
   return token;
 }
-function sessionUser(db, token) {
+function sessionUser(token) {
   if (!token) return null;
-  const now = Date.now(), id = sha(token);
-  db.sessions = db.sessions.filter((s) => now - s.createdAt < ABSOLUTE_MS && now - s.lastSeen < IDLE_MS);
-  const s = db.sessions.find((x) => x.id === id);
+  store.sessions.prune(ABSOLUTE_MS, IDLE_MS);
+  const id = sha(token), s = store.sessions.get(id);
   if (!s) return null;
-  const u = db.users.find((x) => x.id === s.userId);
+  const u = store.users.byId(s.userId);
   if (!u || u.disabled) return null;
-  s.lastSeen = now;
+  if (Date.now() - s.lastSeen > 60e3) store.sessions.touch(id); // avoid a write on every request
   return u;
 }
-const endSession = (db, token) => { if (token) db.sessions = db.sessions.filter((s) => s.id !== sha(token)); };
-const endUserSessions = (db, userId) => { db.sessions = db.sessions.filter((s) => s.userId !== userId); };
+const endSession = (token) => { if (token) store.sessions.delete(sha(token)); };
+const endUserSessions = (userId) => store.sessions.deleteForUser(userId);
 
 const fails = new Map(); // "ip|email" -> { n, until }
 function lockedFor(key) { const f = fails.get(key); return f && f.until > Date.now() ? Math.ceil((f.until - Date.now()) / 1000) : 0; }
