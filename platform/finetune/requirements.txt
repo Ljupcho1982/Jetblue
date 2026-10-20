@@ -1,0 +1,4 @@
+# Versions drift quickly; if install or training fails, check Unsloth's current install guide.
+unsloth
+trl
+datasets

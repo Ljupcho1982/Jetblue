@@ -38,7 +38,6 @@ function buildSystem(playbook, learned) {
 }
 
 async function wordDraft({ decision, aircraft, buyer, offer, mode, playbook, learned }) {
-  if (!enabled()) return { text: decision.message, source: 'template', facts: null };
   const allowed = [offer, decision.price].filter(Boolean);
   const secrets = [aircraft.floor, aircraft.minLeaseMonthly, aircraft.listPrice * (1 - aircraft.maxDiscountPct / 100)];
   const facts = {
@@ -47,6 +46,7 @@ async function wordDraft({ decision, aircraft, buyer, offer, mode, playbook, lea
     aircraft: { id: aircraft.id, model: aircraft.model, year: aircraft.year, seats: aircraft.seats, rangeNm: aircraft.rangeNm, location: aircraft.location },
     mustInclude: playbook.rules.disclaimer,
   };
+  if (!enabled()) return { text: decision.message, source: 'template', facts };
   try {
     const text = clean(await complete(buildSystem(playbook, learned), JSON.stringify(facts)));
     const v = Logic.validateMessage(text, { allowed, secrets });
