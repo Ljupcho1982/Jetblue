@@ -47,6 +47,11 @@ const pages = {
     ${S.inventory.map((a) => `<tr><td>${esc(a.id)}</td><td><b>${esc(a.model)}</b><br><span class="tag">${esc(a.type)}</span></td><td>${a.year}<br>${a.hours.toLocaleString()}</td><td>${a.seats}<br>${a.rangeNm} nm</td><td>${esc(a.location)}</td><td>${fmt(a.listPrice)}</td><td>${fmt(a.leaseMonthly)}</td>
       ${can('view.full') ? `<td class="small warn">floor ${fmt(a.floor)}<br>max disc ${a.maxDiscountPct}%<br>min lease ${fmt(a.minLeaseMonthly)} / ${a.minTermMonths} mo</td>` : ''}
       <td>${can('inventory.write') ? `<button class="small secondary" data-edit="${esc(a.id)}">Edit</button>` : ''} ${can('inventory.delete') ? `<button class="small danger" data-del="${esc(a.id)}">Delete</button>` : ''}</td></tr>`).join('')}</table></div>
+    ${can('inventory.write') ? `<div class="card"><h2>Import from CSV</h2>
+      <p class="muted small">One row per aircraft. Required columns: ${['model', 'type', 'year', 'hours', 'seats', 'rangeNm', 'location', 'listPrice', 'floor', 'maxDiscountPct', 'leaseMonthly', 'minLeaseMonthly', 'minTermMonths'].join(', ')}. Optional: id (rows with an existing id are updated). Up to 500 rows. You see a preview first and nothing is saved if any row has an error.</p>
+      <input type="file" id="csvFile" accept=".csv,text/csv"><textarea id="csvText" rows="4" placeholder="…or paste CSV here" style="margin-top:8px"></textarea>
+      <button id="csvPreview">Preview</button><button class="secondary" id="csvTemplate">Download template</button><button id="csvImport" class="hidden">Import</button>
+      <div id="csvOut"></div></div>` : ''}
     ${can('inventory.write') ? `<div class="card"><h2 id="invTitle">Add aircraft</h2><form id="invForm"><input type="hidden" name="id">
       <div class="grid">
         <label>Model<input name="model" required></label><label>Type<select name="type"><option>turboprop</option><option>light jet</option><option>regional jet</option><option>narrowbody</option></select></label>
@@ -59,6 +64,26 @@ const pages = {
       </div><button>Save aircraft</button></form></div>` : ''}`;
   },
   inventoryInit() {
+    if ($('#csvPreview')) {
+      const COLS = ['id', 'model', 'type', 'year', 'hours', 'seats', 'rangeNm', 'location', 'listPrice', 'floor', 'maxDiscountPct', 'leaseMonthly', 'minLeaseMonthly', 'minTermMonths'];
+      $('#csvFile').onchange = async (e) => { const f = e.target.files[0]; if (f) { if (f.size > 900000) return toast('File too large (max 900 KB)'); $('#csvText').value = await f.text(); } };
+      $('#csvTemplate').onclick = () => {
+        const sample = [COLS.join(','), ',ATR 72-600,turboprop,2015,18000,70,825,Madrid,"12,500,000",11500000,8,115000,105000,36'].join('\n');
+        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([sample], { type: 'text/csv' })); a.download = 'inventory-template.csv'; a.click();
+      };
+      const run = async (dryRun) => {
+        const csv = $('#csvText').value; if (!csv.trim()) return toast('Choose a file or paste CSV first');
+        let res; try { res = await fetch('/api/inventory/import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ csv, dryRun }) }).then(async (r) => ({ ok: r.ok, j: await r.json() })); } catch { return toast('Network error'); }
+        const j = res.ok ? res.j : (res.j.details || { rows: [], errors: 1 });
+        const head = res.ok ? '' : `<p class="bad">${esc(res.j.error)}</p>`;
+        $('#csvOut').innerHTML = head + (j.rows.length ? `<p><b>${j.created ?? 0}</b> new, <b>${j.updated ?? 0}</b> updates, <b class="${j.errors ? 'bad' : ''}">${j.errors}</b> error(s)</p><table><tr><th>Line</th><th>Action</th><th>Aircraft</th><th></th></tr>${j.rows.map((r) => `<tr><td>${r.line}</td><td>${esc(r.status)}</td><td>${esc(r.id || '')} ${esc(r.model || '')}</td><td class="bad small">${esc(r.error || '')}</td></tr>`).join('')}</table>` : '');
+        $('#csvImport').classList.toggle('hidden', !(dryRun && res.ok && j.errors === 0 && j.total > 0));
+        if (!dryRun && res.ok) { toast(`Imported ${j.created} new, ${j.updated} updated`); render(); }
+      };
+      $('#csvPreview').onclick = () => run(true);
+      $('#csvImport').onclick = () => run(false);
+      $('#csvText').oninput = () => $('#csvImport').classList.add('hidden'); // edited since the preview
+    }
     if ($('#invForm')) $('#invForm').onsubmit = async (e) => { e.preventDefault(); await call('POST', 'inventory', form(e.target)); toast('Saved'); await render(); };
     document.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { if (confirm('Delete ' + b.dataset.del + '?')) { await call('DELETE', 'inventory/' + b.dataset.del); await render(); } });
     document.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => {
@@ -141,7 +166,7 @@ const pages = {
         <label>Mode<select name="mode"><option>buy</option><option>lease</option></select></label><label>Offer<input name="offer" type="number" required></label><label>Round<input name="round" type="number" value="1"></label>
         <label>Term (lease)<input name="termMonths" type="number"></label><label>Expect<select name="expect"><option>accept</option><option>counter</option><option>escalate</option></select></label><div><button>Add</button></div></form></div>
     <div class="card"><h2>Fine-tune an open-source model</h2><p class="muted small">Download broker-approved replies as chat-format JSONL, ready for LoRA fine-tuning (for example with Axolotl, Unsloth or llama-factory). Edited replies are the most valuable rows. Aim for hundreds of reviewed examples before fine-tuning.</p><a href="/api/export"><button class="secondary">Download finetune.jsonl</button></a></div>
-    <div class="card"><h2>Reset</h2><button class="danger" id="reset">Reset all demo data</button></div>`;
+    ${S.demo ? '<div class="card"><h2>Reset</h2><p class="muted small">Demo mode only: wipes aircraft, leads, deals and learned examples back to the demo data.</p><button class="danger" id="reset">Reset all demo data</button></div>' : ''}`;
   },
   trainingInit() {
     const put = (b) => call('PUT', 'playbook', b).then(render);
@@ -155,7 +180,7 @@ const pages = {
       const r = await call('POST', 'eval');
       $('#evalOut').innerHTML = `<p><b class="${r.passed === r.total ? 'ok' : 'bad'}">${r.passed}/${r.total} passed</b></p><table>${r.rows.map((x) => `<tr><td>${x.pass ? '<span class="ok">PASS</span>' : '<span class="bad">FAIL</span>'}</td><td>${esc(x.name)}</td><td>${esc(x.action || '')} ${x.price ? fmt(x.price) : ''}</td><td class="bad small">${esc(x.problems.join('; '))}</td></tr>`).join('')}</table>`;
     };
-    $('#reset').onclick = async () => { if (confirm('Reset everything?')) { await call('POST', 'reset'); await render(); } };
+    if ($('#reset')) $('#reset').onclick = async () => { if (confirm('Reset everything?')) { await call('POST', 'reset'); await render(); } };
   },
 };
 

@@ -198,8 +198,10 @@ const playbook = {
 function seed() {
   tx(() => {
     if (!q("SELECT 1 FROM settings WHERE key='seeded'").get()) {
-      for (const a of Logic.INVENTORY) aircraft.upsert(a);
-      playbook.set(defaultPlaybook());
+      const demo = process.env.SEED_DEMO !== '0'; // SEED_DEMO=0: start with no aircraft and no demo test scenarios
+      if (demo) for (const a of Logic.INVENTORY) aircraft.upsert(a);
+      const pb = defaultPlaybook(); if (!demo) pb.scenarios = [];
+      playbook.set(pb);
       q("INSERT INTO settings (key,value) VALUES ('seeded','1')").run();
     }
   });
@@ -209,8 +211,10 @@ function seed() {
 function reset() {
   tx(() => {
     for (const t of ['messages', 'deals', 'leads', 'learned', 'activity', 'aircraft']) db.exec(`DELETE FROM ${t}`);
-    for (const a of Logic.INVENTORY) aircraft.upsert(a);
-    playbook.set(defaultPlaybook());
+    const demo = process.env.SEED_DEMO !== '0';
+    if (demo) for (const a of Logic.INVENTORY) aircraft.upsert(a);
+    const pb = defaultPlaybook(); if (!demo) pb.scenarios = [];
+    playbook.set(pb);
   });
 }
 

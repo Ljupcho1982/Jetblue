@@ -8,6 +8,7 @@ const store = require('./store.js');
 const llm = require('./llm.js');
 const auth = require('./auth.js');
 const mailer = require('./mailer.js');
+const { parseCsv } = require('./csv.js');
 
 const PUBLIC = path.join(__dirname, 'public');
 // TRUST_PROXY=<number of reverse proxies in front>. With 0 the socket address is used. Behind a proxy, take the
@@ -22,6 +23,7 @@ function clientIp(req) {
 const PRIVATE_AIRCRAFT = ['floor', 'maxDiscountPct', 'minLeaseMonthly'];
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 const id = () => crypto.randomUUID().slice(0, 8);
+const DEMO = () => process.env.SEED_DEMO !== '0';
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
 const str = (x, max) => String(x ?? '').trim().slice(0, max);
 function numIn(x, min, max, label) {
@@ -42,6 +44,46 @@ function body(req) {
 }
 
 const httpErr = (status, message) => Object.assign(new Error(message), { status });
+
+// Validates one aircraft record (API form or CSV row). Throws a 400 describing the first problem.
+function parseAircraft(b) {
+  if (b.id && !ID_RE.test(String(b.id))) throw httpErr(400, 'id may contain only letters, digits, - and _ (max 40)');
+  const listPrice = numIn(b.listPrice, 1, 1e10, 'listPrice'), leaseMonthly = numIn(b.leaseMonthly, 0, 1e8, 'leaseMonthly');
+  const a = { id: b.id ? String(b.id) : 'AC-' + id(), model: str(b.model, 100), type: str(b.type, 40), year: numIn(b.year, 1950, 2100, 'year'), hours: numIn(b.hours, 0, 1e6, 'hours'),
+    seats: numIn(b.seats, 0, 1000, 'seats'), rangeNm: numIn(b.rangeNm, 0, 20000, 'rangeNm'), location: str(b.location, 100), listPrice, floor: numIn(b.floor, 0, listPrice, 'floor (must not exceed listPrice)'),
+    maxDiscountPct: numIn(b.maxDiscountPct, 0, 100, 'maxDiscountPct'), leaseMonthly, minLeaseMonthly: numIn(b.minLeaseMonthly, 0, leaseMonthly, 'minLeaseMonthly (must not exceed leaseMonthly)'), minTermMonths: numIn(b.minTermMonths, 0, 600, 'minTermMonths') };
+  if (!a.model) throw httpErr(400, 'model required');
+  return a;
+}
+
+// CSV import. Header names are matched ignoring case, spaces and underscores ("range_nm" = "rangeNm").
+const CSV_COLUMNS = ['id', 'model', 'type', 'year', 'hours', 'seats', 'rangeNm', 'location', 'listPrice', 'floor', 'maxDiscountPct', 'leaseMonthly', 'minLeaseMonthly', 'minTermMonths'];
+const CSV_OPTIONAL = new Set(['id']);
+function importInventory(csv, dryRun) {
+  if (typeof csv !== 'string' || !csv.trim()) throw httpErr(400, 'csv text required');
+  let parsed; try { parsed = parseCsv(csv); } catch (e) { throw httpErr(400, e.message); }
+  if (parsed.length < 2) throw httpErr(400, 'CSV needs a header row and at least one aircraft row');
+  if (parsed.length - 1 > 500) throw httpErr(400, 'At most 500 aircraft per import');
+  const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, ''), byNorm = Object.fromEntries(CSV_COLUMNS.map((c) => [norm(c), c]));
+  const cols = parsed[0].cells.map((h) => byNorm[norm(h)] || null);
+  const missing = CSV_COLUMNS.filter((c) => !CSV_OPTIONAL.has(c) && !cols.includes(c));
+  if (missing.length) throw httpErr(400, 'Missing columns: ' + missing.join(', '));
+  const seen = new Set(), rows = [];
+  for (const { line, cells } of parsed.slice(1)) {
+    const rec = {}; cols.forEach((c, i) => { if (c) rec[c] = (cells[i] ?? '').trim().replace(/^\$/, '').replace(/(?<=\d),(?=\d{3}(\D|$))/g, ''); });
+    try {
+      const a = parseAircraft(rec);
+      if (seen.has(a.id) && rec.id) throw httpErr(400, 'duplicate id ' + a.id + ' in this file');
+      seen.add(a.id);
+      rows.push({ line, status: store.aircraft.get(a.id) ? 'update' : 'create', id: a.id, model: a.model, aircraft: a });
+    } catch (e) { if (!e.status) throw e; rows.push({ line, status: 'error', error: e.message, model: rec.model || '' }); }
+  }
+  const errors = rows.filter((r) => r.status === 'error').length;
+  const result = { dryRun: !!dryRun, total: rows.length, created: rows.filter((r) => r.status === 'create').length, updated: rows.filter((r) => r.status === 'update').length, errors, rows: rows.map(({ aircraft, ...r }) => r) };
+  if (dryRun) return result;
+  if (errors) throw Object.assign(httpErr(400, `${errors} row(s) have errors; nothing was imported`), { details: result });
+  return { rows, result };
+}
 
 // Viewers see no private limits, draft internals, playbook or learned data.
 function redactedState(st) {
@@ -189,20 +231,22 @@ async function api(req, url, ctx) {
   }
 
   if (p[0] === 'state' && m === 'GET') {
-    const st = { inventory: store.aircraft.list(), leads: store.leads.list(), deals: store.deals.list(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe(), mail: mailer.describe() };
+    const st = { inventory: store.aircraft.list(), leads: store.leads.list(), deals: store.deals.list(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe(), mail: mailer.describe(), demo: DEMO() };
     if (!auth.can(user, 'users.manage')) st.activity = st.activity.filter((x) => !AUTH_EVENT.test(x.msg));
     return auth.can(user, 'view.full') ? st : redactedState(st);
   }
 
+  if (p[0] === 'inventory' && p[1] === 'import' && m === 'POST') {
+    need('inventory.write');
+    const out = importInventory(b.csv, b.dryRun !== false); // preview unless dryRun is explicitly false
+    if (out.dryRun) return out;
+    store.tx(() => { for (const r of out.rows) store.aircraft.upsert(r.aircraft); act(`Inventory imported: ${out.result.created} new, ${out.result.updated} updated`); });
+    return out.result;
+  }
   if (p[0] === 'inventory') {
     if (m === 'POST') {
       need('inventory.write');
-      if (b.id && !ID_RE.test(String(b.id))) throw httpErr(400, 'id may contain only letters, digits, - and _ (max 40)');
-      const listPrice = numIn(b.listPrice, 1, 1e10, 'listPrice'), leaseMonthly = numIn(b.leaseMonthly, 0, 1e8, 'leaseMonthly');
-      const a = { id: b.id ? String(b.id) : 'AC-' + id(), model: str(b.model, 100), type: str(b.type, 40), year: numIn(b.year, 1950, 2100, 'year'), hours: numIn(b.hours, 0, 1e6, 'hours'),
-        seats: numIn(b.seats, 0, 1000, 'seats'), rangeNm: numIn(b.rangeNm, 0, 20000, 'rangeNm'), location: str(b.location, 100), listPrice, floor: numIn(b.floor, 0, listPrice, 'floor (must not exceed listPrice)'),
-        maxDiscountPct: numIn(b.maxDiscountPct, 0, 100, 'maxDiscountPct'), leaseMonthly, minLeaseMonthly: numIn(b.minLeaseMonthly, 0, leaseMonthly, 'minLeaseMonthly (must not exceed leaseMonthly)'), minTermMonths: numIn(b.minTermMonths, 0, 600, 'minTermMonths') };
-      if (!a.model) throw httpErr(400, 'model required');
+      const a = parseAircraft(b);
       store.aircraft.upsert(a); act('Inventory saved: ' + a.id); return a;
     }
     if (m === 'DELETE') {
@@ -341,7 +385,7 @@ async function api(req, url, ctx) {
       rows.push({ messages: [{ role: 'system', content: sys }, { role: 'user', content: JSON.stringify(x.facts) }, { role: 'assistant', content: x.text }] });
     return { __raw: rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''), count: rows.length };
   }
-  if (p[0] === 'reset' && m === 'POST') { need('data.reset'); store.reset(); store.activity.add('Demo data reset', user.email); return { ok: true }; }
+  if (p[0] === 'reset' && m === 'POST') { need('data.reset'); if (!DEMO()) throw httpErr(409, 'Reset is disabled when SEED_DEMO=0 (it would delete real inventory, leads and deals)'); store.reset(); store.activity.add('Demo data reset', user.email); return { ok: true }; }
   throw httpErr(404, 'not found');
 }
 
@@ -374,7 +418,7 @@ const server = http.createServer(async (req, res) => {
     send(200, { 'content-type': TYPES[path.extname(f)] || 'application/octet-stream' }, fs.readFileSync(f));
   } catch (e) {
     if (!e.status) console.error(e);
-    send(e.status || 500, { 'content-type': 'application/json' }, JSON.stringify({ error: e.status ? e.message : 'Server error' }));
+    send(e.status || 500, { 'content-type': 'application/json' }, JSON.stringify({ error: e.status ? e.message : 'Server error', ...(e.details ? { details: e.details } : {}) }));
   }
 });
 

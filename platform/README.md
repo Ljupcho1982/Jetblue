@@ -87,8 +87,15 @@ MAIL_ALLOWED_DOMAINS=yourdomain.com,example.com    # optional: only send to thes
 ## Deploying
 [DEPLOY.md](DEPLOY.md): Docker Compose with automatic HTTPS (Caddy), health check, graceful shutdown, scheduled backups. Settings: `HOST` (default 127.0.0.1), `PORT`, `TRUST_PROXY` (number of reverse proxies in front, so lockouts use real client IPs), `COOKIE_SECURE=1`. `GET /healthz` returns `{"ok":true}` when the database responds. The Docker image itself has not been built in the environment this was written in.
 
+## Loading your real inventory
+Inventory page, **Import from CSV** (admins and brokers). Download the template, fill one row per aircraft, choose the file or paste it, then **Preview**. The preview lists every row as new, update or error with the line number and reason; **Import** appears only when there are no errors, and a file with any error writes nothing.
+- Columns: `model, type, year, hours, seats, rangeNm, location, listPrice, floor, maxDiscountPct, leaseMonthly, minLeaseMonthly, minTermMonths`, plus optional `id` (an existing id updates that aircraft; blank creates a new one). Header case, spaces and underscores are ignored; `$` and thousands separators in numbers are accepted. Up to 500 rows per file.
+- `floor`, `maxDiscountPct`, `minLeaseMonthly` and `minTermMonths` are the private limits that bound what the AI may propose. Set them deliberately.
+- `SEED_DEMO=0` starts with no demo aircraft and no demo test scenarios (the Docker image sets this). In that mode **Reset demo data** is disabled so real data cannot be wiped from the UI. After importing, add your own test scenarios on the Training page.
+- Fields are validated like the single-aircraft form (price ranges, floor <= list price, safe ids).
+
 ## Tests
-`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
+`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch. `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
 
 ## Input handling and privacy
 - All write endpoints validate types and ranges (ids, prices, floor <= list, discounts, offers, playbook rules, scenarios) and return 400 instead of failing deep inside; text fields are length-limited.
