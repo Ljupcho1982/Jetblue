@@ -22,12 +22,22 @@ function clientIp(req) {
 const PRIVATE_AIRCRAFT = ['floor', 'maxDiscountPct', 'minLeaseMonthly'];
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 const id = () => crypto.randomUUID().slice(0, 8);
+const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
+const str = (x, max) => String(x ?? '').trim().slice(0, max);
+function numIn(x, min, max, label) {
+  const n = Number(x);
+  if (x === '' || x == null || !Number.isFinite(n) || n < min || n > max) throw httpErr(400, `${label} must be a number between ${min} and ${max}`);
+  return n;
+}
+const optNum = (x, min, max, label) => (x === '' || x == null ? undefined : numIn(x, min, max, label));
+const AUTH_EVENT = /^(Login|Failed|Recovery|Two-factor|Password|User |Admin account|Demo data)/; // visible to admins only
 const num = (v) => (v === '' || v == null ? undefined : Number(v));
 
 function body(req) {
   return new Promise((resolve, reject) => {
-    let d = ''; req.on('data', (c) => { d += c; if (d.length > 1e6) reject(httpErr(413, 'Request too large')); });
-    req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { reject(httpErr(400, 'Invalid JSON')); } });
+    let d = '', tooBig = false;
+    req.on('data', (c) => { if (tooBig) return; d += c; if (d.length > 1e6) { tooBig = true; d = ''; reject(httpErr(413, 'Request too large')); } }); // keep draining so the response can be delivered
+    req.on('end', () => { if (tooBig) return; try { resolve(d ? JSON.parse(d) : {}); } catch (e) { reject(httpErr(400, 'Invalid JSON')); } });
   });
 }
 
@@ -99,7 +109,7 @@ async function api(req, url, ctx) {
     const email = String(b.email || '').toLowerCase(), key = ctx.ip + '|' + email;
     const wait = auth.lockedFor(key); if (wait) throw httpErr(429, `Too many attempts. Try again in ${Math.ceil(wait / 60)} minute(s).`);
     const found = store.users.byEmail(email), u = found && !found.disabled ? found : undefined;
-    if (!(await auth.verifyPassword(String(b.password || ''), u))) { auth.recordFail(key); store.activity.add('Failed login', email); throw httpErr(401, 'Invalid email or password'); }
+    if (!(await auth.verifyPassword(String(b.password || ''), u))) { auth.recordFail(key); if (found) store.activity.add('Failed login', email); throw httpErr(401, 'Invalid email or password'); }
     if (u.totpEnabled) return { needs2fa: true, ticket: auth.createTicket(u.id, key) }; // lockout counter is cleared only after the second factor
     auth.clearFails(key); store.activity.add('Login', u.email); return session(u);
   }
@@ -180,14 +190,19 @@ async function api(req, url, ctx) {
 
   if (p[0] === 'state' && m === 'GET') {
     const st = { inventory: store.aircraft.list(), leads: store.leads.list(), deals: store.deals.list(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe(), mail: mailer.describe() };
+    if (!auth.can(user, 'users.manage')) st.activity = st.activity.filter((x) => !AUTH_EVENT.test(x.msg));
     return auth.can(user, 'view.full') ? st : redactedState(st);
   }
 
   if (p[0] === 'inventory') {
     if (m === 'POST') {
       need('inventory.write');
-      const a = { id: b.id || 'AC-' + id(), model: b.model, type: b.type, year: +b.year, hours: +b.hours, seats: +b.seats, rangeNm: +b.rangeNm, location: b.location, listPrice: +b.listPrice, floor: +b.floor, maxDiscountPct: +b.maxDiscountPct, leaseMonthly: +b.leaseMonthly, minLeaseMonthly: +b.minLeaseMonthly, minTermMonths: +b.minTermMonths };
-      if (!a.model || !a.listPrice || a.floor > a.listPrice) throw httpErr(400, 'model and listPrice required; floor must not exceed listPrice');
+      if (b.id && !ID_RE.test(String(b.id))) throw httpErr(400, 'id may contain only letters, digits, - and _ (max 40)');
+      const listPrice = numIn(b.listPrice, 1, 1e10, 'listPrice'), leaseMonthly = numIn(b.leaseMonthly, 0, 1e8, 'leaseMonthly');
+      const a = { id: b.id ? String(b.id) : 'AC-' + id(), model: str(b.model, 100), type: str(b.type, 40), year: numIn(b.year, 1950, 2100, 'year'), hours: numIn(b.hours, 0, 1e6, 'hours'),
+        seats: numIn(b.seats, 0, 1000, 'seats'), rangeNm: numIn(b.rangeNm, 0, 20000, 'rangeNm'), location: str(b.location, 100), listPrice, floor: numIn(b.floor, 0, listPrice, 'floor (must not exceed listPrice)'),
+        maxDiscountPct: numIn(b.maxDiscountPct, 0, 100, 'maxDiscountPct'), leaseMonthly, minLeaseMonthly: numIn(b.minLeaseMonthly, 0, leaseMonthly, 'minLeaseMonthly (must not exceed leaseMonthly)'), minTermMonths: numIn(b.minTermMonths, 0, 600, 'minTermMonths') };
+      if (!a.model) throw httpErr(400, 'model required');
       store.aircraft.upsert(a); act('Inventory saved: ' + a.id); return a;
     }
     if (m === 'DELETE') {
@@ -205,9 +220,10 @@ async function api(req, url, ctx) {
   }
   if (p[0] === 'leads' && m === 'POST') {
     need('leads.write');
-    const request = { mode: b.mode, type: b.type, seats: num(b.seats), rangeNm: num(b.rangeNm), maxAge: num(b.maxAge), budget: num(b.budget) };
-    const screening = Logic.screen({ country: b.country });
-    const lead = { id: id(), createdAt: new Date().toISOString(), name: b.name, company: b.company, country: b.country, request, screening, status: screening.ok ? 'qualified' : 'compliance-hold',
+    if (!['buy', 'lease'].includes(b.mode)) throw httpErr(400, 'mode must be buy or lease');
+    const request = { mode: b.mode, type: str(b.type || 'any', 40), seats: optNum(b.seats, 0, 1000, 'seats'), rangeNm: optNum(b.rangeNm, 0, 20000, 'rangeNm'), maxAge: optNum(b.maxAge, 0, 100, 'maxAge'), budget: optNum(b.budget, 0, 1e10, 'budget') };
+    const screening = Logic.screen({ country: str(b.country, 60) });
+    const lead = { id: id(), createdAt: new Date().toISOString(), name: str(b.name, 100), company: str(b.company, 100) || null, country: str(b.country, 60), request, screening, status: screening.ok ? 'qualified' : 'compliance-hold',
       matches: screening.ok ? Logic.matchAircraft(request, store.aircraft.list()).map((x) => ({ aircraftId: x.aircraft.id, score: x.score, reasons: x.reasons })) : [] };
     if (!lead.name) throw httpErr(400, 'name required');
     if (b.email) { if (!mailer.validEmail(b.email)) throw httpErr(400, 'Invalid buyer email'); lead.email = b.email.toLowerCase(); }
@@ -229,9 +245,9 @@ async function api(req, url, ctx) {
     if (p[2] === 'offer' && m === 'POST') {
       if (d.stage !== 'negotiating') throw httpErr(409, 'This deal is no longer negotiating');
       if (d.messages.some((x) => x.status === 'draft')) throw httpErr(409, 'resolve the pending draft first');
-      const offer = +b.offer; if (!offer) throw httpErr(400, 'offer required');
+      const offer = numIn(b.offer, 1, 1e10, 'offer'), termMonths = optNum(b.termMonths, 1, 600, 'termMonths');
       const round = d.round + 1, playbook = store.playbook.get();
-      const decision = Logic.negotiate({ aircraft: a, mode: d.mode, offer, round, termMonths: num(b.termMonths), rules: playbook.rules });
+      const decision = Logic.negotiate({ aircraft: a, mode: d.mode, offer, round, termMonths, rules: playbook.rules });
       const w = await llm.wordDraft({ decision, aircraft: a, buyer: { name: d.buyer }, offer, mode: d.mode, playbook, learned: store.learned.list() });
       try {
         store.tx(() => { // the model call above can take seconds; only commit if the deal did not move meanwhile
@@ -246,7 +262,8 @@ async function api(req, url, ctx) {
     const msg = p[2] === 'messages' ? store.deals.message(d.id, p[3]) : null;
     if (msg && p[4] === 'approve' && m === 'POST') {
       if (msg.status !== 'draft') throw httpErr(409, 'Message is not a pending draft');
-      const text = String(b.text || msg.text);
+      if (b.text !== undefined && (typeof b.text !== 'string' || !b.text.trim() || b.text.length > 5000)) throw httpErr(400, 'text must be 1-5000 characters');
+      const text = b.text || msg.text;
       store.tx(() => {
         store.deals.approve(msg.id, text, user.email);
         if (msg.action === 'accept') store.deals.setStage(d.id, 'LOI'); else if (msg.action === 'escalate') store.deals.setStage(d.id, 'escalated');
@@ -275,9 +292,20 @@ async function api(req, url, ctx) {
     if (m === 'PUT') {
       need('playbook.write');
       const pb = store.playbook.get(), r = b.rules || {};
-      for (const k of ['company', 'broker', 'tone', 'systemPrompt']) if (typeof b[k] === 'string') pb[k] = b[k];
-      for (const k of Object.keys(Logic.DEFAULT_RULES)) if (r[k] !== undefined) pb.rules[k] = typeof Logic.DEFAULT_RULES[k] === 'number' ? +r[k] : String(r[k]);
-      if (Array.isArray(b.examples)) pb.examples = b.examples; if (Array.isArray(b.scenarios)) pb.scenarios = b.scenarios;
+      for (const [k, max] of [['company', 200], ['broker', 200], ['tone', 200], ['systemPrompt', 10000]]) if (b[k] !== undefined) { if (typeof b[k] !== 'string') throw httpErr(400, k + ' must be text'); pb[k] = b[k].slice(0, max); }
+      const R = { stepBase: [0, 1], stepPerRound: [0, 1], escalateBelowPct: [0, 100], maxRounds: [1, 20] };
+      for (const k of Object.keys(Logic.DEFAULT_RULES)) if (r[k] !== undefined) pb.rules[k] = R[k] ? numIn(r[k], R[k][0], R[k][1], k) : str(r[k], 500);
+      if (b.examples !== undefined) {
+        if (!Array.isArray(b.examples) || b.examples.length > 50 || b.examples.some((e) => !e || typeof e.situation !== 'string' || typeof e.reply !== 'string')) throw httpErr(400, 'examples: up to 50 items with situation and reply text');
+        pb.examples = b.examples.map((e) => ({ situation: e.situation.slice(0, 100), reply: e.reply.slice(0, 2000) }));
+      }
+      if (b.scenarios !== undefined) {
+        if (!Array.isArray(b.scenarios) || b.scenarios.length > 100) throw httpErr(400, 'scenarios: up to 100 items');
+        pb.scenarios = b.scenarios.map((s) => {
+          if (!s || !ID_RE.test(String(s.aircraftId)) || !['buy', 'lease'].includes(s.mode) || !['accept', 'counter', 'escalate'].includes(s.expect)) throw httpErr(400, 'scenario needs aircraftId, mode (buy/lease) and expect (accept/counter/escalate)');
+          return { name: str(s.name, 100) || 'Scenario', aircraftId: String(s.aircraftId), mode: s.mode, offer: numIn(s.offer, 1, 1e10, 'offer'), round: numIn(s.round ?? 1, 1, 20, 'round'), termMonths: optNum(s.termMonths, 1, 600, 'termMonths'), expect: s.expect };
+        });
+      }
       store.tx(() => { store.playbook.set(pb); act('Playbook updated'); });
       return pb;
     }

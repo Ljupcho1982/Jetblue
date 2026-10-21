@@ -23,7 +23,7 @@ function deliveryHtml(m) {
   if (st === 'sending') return '<div class="small muted">Sending…</div>';
   if (!st && !S.mail.enabled) return '<div class="small muted">Not emailed (email is not configured)</div>';
   const label = { failed: 'Email failed', blocked: 'Email blocked', skipped: 'Not emailed' }[st] || 'Not emailed yet';
-  return `<div class="small warn">${label}${m.deliveryError ? ': ' + esc(m.deliveryError) : ''}</div>` + (w ? `<div>${st === 'skipped' ? `<button class="small secondary" data-addemail="${m.id}">Add buyer email</button> ` : ''}<button class="small secondary" data-send="${m.id}">${st ? 'Retry email' : 'Send email'}</button></div>` : '');
+  return `<div class="small warn">${label}${m.deliveryError ? ': ' + esc(m.deliveryError) : ''}</div>` + (w ? `<div>${st === 'skipped' ? `<button class="small secondary" data-addemail="${esc(m.id)}">Add buyer email</button> ` : ''}<button class="small secondary" data-send="${esc(m.id)}">${st ? 'Retry email' : 'Send email'}</button></div>` : '');
 }
 
 const pages = {
@@ -76,9 +76,9 @@ const pages = {
       <label>Min seats<input name="seats" type="number"></label><label>Min range (nm)<input name="rangeNm" type="number"></label>
       <label>Max age (yrs)<input name="maxAge" type="number"></label><label>Budget (per month if lease)<input name="budget" type="number"></label>
     </div><button>Screen and match</button></form></div>` : ''}
-    ${S.leads.map((l) => `<div class="card"><b>${esc(l.name)}</b> ${esc(l.company || '')} <span class="muted">· ${esc(l.country)} · ${l.request.mode}${l.email ? ' · ' + esc(l.email) : ''}</span>
+    ${S.leads.map((l) => `<div class="card"><b>${esc(l.name)}</b> ${esc(l.company || '')} <span class="muted">· ${esc(l.country)} · ${esc(l.request.mode)}${l.email ? ' · ' + esc(l.email) : ''}</span>
       <span class="tag ${l.screening.ok ? 'ok' : 'bad'}">${l.screening.ok ? 'screening passed (demo)' : 'compliance hold: ' + esc(l.screening.reason)}</span>
-      ${l.matches.map((m) => { const a = aircraft(m.aircraftId); return a ? `<div style="margin-top:8px">${esc(a.model)} <span class="tag">${a.id}</span> <span class="tag">match ${m.score}</span> ${priceOf(a, l.request.mode)} <span class="warn small">${esc(m.reasons.join(', '))}</span> ${can('deals.write') ? `<button class="small secondary" data-open="${l.id}|${a.id}">Open deal</button>` : ''}</div>` : ''; }).join('')}
+      ${l.matches.map((m) => { const a = aircraft(m.aircraftId); return a ? `<div style="margin-top:8px">${esc(a.model)} <span class="tag">${esc(a.id)}</span> <span class="tag">match ${m.score}</span> ${priceOf(a, l.request.mode)} <span class="warn small">${esc(m.reasons.join(', '))}</span> ${can('deals.write') ? `<button class="small secondary" data-open="${esc(l.id)}|${esc(a.id)}">Open deal</button>` : ''}</div>` : ''; }).join('')}
       ${l.screening.ok && !l.matches.length ? '<p class="muted small">No matching aircraft. Source inventory.</p>' : ''}</div>`).join('')}`;
   },
   leadsInit() {
@@ -89,16 +89,16 @@ const pages = {
   deals() {
     const d = S.deals.find((x) => x.id === selectedDeal) || S.deals[0];
     if (d) selectedDeal = d.id;
-    const list = S.deals.map((x) => `<div class="deal-item ${x.id === selectedDeal ? 'active' : ''}" data-deal="${x.id}"><b>${esc(x.buyer)}</b><br><span class="small">${esc(aircraft(x.aircraftId)?.model || x.aircraftId)}</span><br><span class="tag ${x.stage === 'LOI' ? 'ok' : x.stage === 'escalated' ? 'bad' : ''}">${x.stage}</span></div>`).join('') || '<p class="muted">No deals yet. Open one from a lead.</p>';
+    const list = S.deals.map((x) => `<div class="deal-item ${x.id === selectedDeal ? 'active' : ''}" data-deal="${esc(x.id)}"><b>${esc(x.buyer)}</b><br><span class="small">${esc(aircraft(x.aircraftId)?.model || x.aircraftId)}</span><br><span class="tag ${x.stage === 'LOI' ? 'ok' : x.stage === 'escalated' ? 'bad' : ''}">${esc(x.stage)}</span></div>`).join('') || '<p class="muted">No deals yet. Open one from a lead.</p>';
     let detail = '<div class="card muted">Select a deal.</div>';
     if (d) {
       const a = aircraft(d.aircraftId) || {}; const pending = d.messages.find((m) => m.status === 'draft');
-      detail = `<div class="card"><h2>${esc(d.buyer)} · ${esc(a.model)} <span class="tag">${d.mode}</span></h2>
+      detail = `<div class="card"><h2>${esc(d.buyer)} · ${esc(a.model)} <span class="tag">${esc(d.mode)}</span></h2>
         ${can('view.full') ? `<div class="limits">Broker-only: ${d.mode === 'lease' ? `min ${fmt(a.minLeaseMonthly)}/mo, min term ${a.minTermMonths} mo` : `floor ${fmt(a.floor)}, max discount ${a.maxDiscountPct}%`}. Asking ${priceOf(a, d.mode)}.</div>` : `<div class="muted small">Asking ${priceOf(a, d.mode)}.</div>`}
         <div>${d.messages.filter((m) => m.status !== 'rejected').map((m) => m.role === 'buyer' ? `<div class="msg buyer">${esc(m.text)}</div>` :
-          m.status === 'draft' ? `<div class="msg assistant draft"><b>Draft (${m.action})</b> <span class="tag">${esc(m.source)}</span>
+          m.status === 'draft' ? `<div class="msg assistant draft"><b>Draft (${esc(m.action)})</b> <span class="tag">${esc(m.source)}</span>
             ${m.flags.map((f) => `<div class="warn small">⚠ ${esc(f)}</div>`).join('')}<textarea id="draftText" rows="5">${esc(m.text)}</textarea><div class="muted small">${esc(m.note)}</div>
-            <button data-approve="${m.id}">Approve and send</button><button class="secondary" data-reject="${m.id}">Reject</button></div>`
+            <button data-approve="${esc(m.id)}">Approve and send</button><button class="secondary" data-reject="${esc(m.id)}">Reject</button></div>`
           : `<div class="msg assistant">${esc(m.text)}${deliveryHtml(m)}</div>`).join('')}</div>
         ${['LOI', 'escalated'].includes(d.stage) ? `<p class="${d.stage === 'LOI' ? 'ok' : 'bad'}">${d.stage === 'LOI' ? 'Ready for letter of intent (human step).' : 'Escalated to the human broker.'}</p>` : ''}
         ${!pending && d.stage === 'negotiating' && can('deals.write') ? `<div class="grid"><label>Buyer's offer (${d.mode === 'lease' ? 'per month' : 'USD'})<input id="offer" type="number"></label>${d.mode === 'lease' ? '<label>Term (months)<input id="term" type="number" value="36"></label>' : ''}</div><button id="sendOffer">Submit buyer's offer</button>` : ''}</div>`;
@@ -136,7 +136,7 @@ const pages = {
       <form id="exForm" class="grid"><label>Situation<input name="situation" required></label><label>Reply text<input name="reply" required></label><div><button>Add example</button></div></form></div>
     <div class="card"><h2>Test scenarios</h2><p class="muted small">Checks decisions, that prices never fall below the floor, and that no private limit appears in a message.</p>
       <button id="runEval">Run all scenarios</button><div id="evalOut"></div>
-      <table><tr><th>Scenario</th><th>Aircraft</th><th>Offer</th><th>Round</th><th>Expect</th><th></th></tr>${p.scenarios.map((s, i) => `<tr><td>${esc(s.name)}</td><td>${s.aircraftId} ${s.mode}</td><td>${fmt(s.offer)}</td><td>${s.round}</td><td>${s.expect}</td><td><button class="small secondary" data-delsc="${i}">Remove</button></td></tr>`).join('')}</table>
+      <table><tr><th>Scenario</th><th>Aircraft</th><th>Offer</th><th>Round</th><th>Expect</th><th></th></tr>${p.scenarios.map((s, i) => `<tr><td>${esc(s.name)}</td><td>${esc(s.aircraftId)} ${esc(s.mode)}</td><td>${fmt(s.offer)}</td><td>${s.round}</td><td>${esc(s.expect)}</td><td><button class="small secondary" data-delsc="${i}">Remove</button></td></tr>`).join('')}</table>
       <h3>Add scenario</h3><form id="scForm" class="grid"><label>Name<input name="name" required></label><label>Aircraft<select name="aircraftId">${S.inventory.map((a) => `<option>${esc(a.id)}</option>`).join('')}</select></label>
         <label>Mode<select name="mode"><option>buy</option><option>lease</option></select></label><label>Offer<input name="offer" type="number" required></label><label>Round<input name="round" type="number" value="1"></label>
         <label>Term (lease)<input name="termMonths" type="number"></label><label>Expect<select name="expect"><option>accept</option><option>counter</option><option>escalate</option></select></label><div><button>Add</button></div></form></div>
@@ -164,12 +164,12 @@ pages.users = async function () {
   return `<h1>Users</h1>
   <div class="card"><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>2FA</th><th></th></tr>
   ${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
-    <td><select data-role="${u.id}">${['admin', 'broker', 'viewer'].map((r) => `<option ${r === u.role ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
+    <td><select data-role="${esc(u.id)}">${['admin', 'broker', 'viewer'].map((r) => `<option ${r === u.role ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
     <td>${u.disabled ? '<span class="tag bad">disabled</span>' : '<span class="tag ok">active</span>'}</td>
-    <td>${u.twoFactor ? `<span class="tag ok">on</span> <button class="small secondary" data-reset2fa="${u.id}">Reset</button>` : '<span class="tag">off</span>'}</td>
-    <td><button class="small secondary" data-toggle="${u.id}|${u.disabled ? 0 : 1}">${u.disabled ? 'Enable' : 'Disable'}</button>
-      <button class="small secondary" data-reset="${u.id}">Reset password</button>
-      ${u.id !== ME.id ? `<button class="small danger" data-rm="${u.id}">Delete</button>` : ''}</td></tr>`).join('')}</table>
+    <td>${u.twoFactor ? `<span class="tag ok">on</span> <button class="small secondary" data-reset2fa="${esc(u.id)}">Reset</button>` : '<span class="tag">off</span>'}</td>
+    <td><button class="small secondary" data-toggle="${esc(u.id)}|${u.disabled ? 0 : 1}">${u.disabled ? 'Enable' : 'Disable'}</button>
+      <button class="small secondary" data-reset="${esc(u.id)}">Reset password</button>
+      ${u.id !== ME.id ? `<button class="small danger" data-rm="${esc(u.id)}">Delete</button>` : ''}</td></tr>`).join('')}</table>
   <p class="muted small">Admin: everything. Broker: leads, deals, inventory, sees private limits. Viewer: read-only, no private limits or drafts.</p></div>
   <div class="card"><h2>Add user</h2><form id="userForm"><div class="grid">
     <label>Name<input name="name" required></label><label>Email<input name="email" type="email" required></label>

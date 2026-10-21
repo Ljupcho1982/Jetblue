@@ -88,7 +88,13 @@ MAIL_ALLOWED_DOMAINS=yourdomain.com,example.com    # optional: only send to thes
 [DEPLOY.md](DEPLOY.md): Docker Compose with automatic HTTPS (Caddy), health check, graceful shutdown, scheduled backups. Settings: `HOST` (default 127.0.0.1), `PORT`, `TRUST_PROXY` (number of reverse proxies in front, so lockouts use real client IPs), `COOKIE_SECURE=1`. `GET /healthz` returns `{"ok":true}` when the database responds. The Docker image itself has not been built in the environment this was written in.
 
 ## Tests
-`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
+`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
+
+## Input handling and privacy
+- All write endpoints validate types and ranges (ids, prices, floor <= list, discounts, offers, playbook rules, scenarios) and return 400 instead of failing deep inside; text fields are length-limited.
+- The UI escapes every value it renders. Hostile data planted directly in the database (bypassing the API) was checked in a browser to render as inert text. That browser check used Playwright and is not part of `npm test`.
+- Request bodies over 1 MB get 413. Malformed cookies are ignored. Static files are served only from `public/`.
+- The activity log shows sign-in, user and two-factor events to admins only. Failed logins are recorded only for real accounts, so a password typed into the email box is never written to the log.
 
 ## Not production-ready yet
 - Inventory is mock data and screening is a country-list stub, not a real sanctions/KYC provider.

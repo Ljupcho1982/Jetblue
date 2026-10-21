@@ -62,12 +62,19 @@ function recordFail(key) {
   if (f.until && f.until <= Date.now()) { f.n = 0; f.until = 0; }
   f.n++; if (f.n >= MAX_FAILS) f.until = Date.now() + LOCK_MS;
   fails.set(key, f);
+  if (fails.size > 5000) { // bound memory against floods of random emails
+    for (const [k, x] of fails) if (x.until <= Date.now() && x.n < MAX_FAILS) fails.delete(k);
+    for (const k of fails.keys()) { if (fails.size <= 4000) break; fails.delete(k); }
+  }
 }
 const clearFails = (key) => fails.delete(key);
 
 function parseCookies(h) {
   const out = {};
-  for (const part of (h || '').split(';')) { const i = part.indexOf('='); if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); }
+  for (const part of (h || '').split(';')) {
+    const i = part.indexOf('='); if (i <= 0) continue;
+    try { out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); } catch { /* malformed cookie: ignore it */ }
+  }
   return out;
 }
 function cookie(token, maxAgeSec) {
