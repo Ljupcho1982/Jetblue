@@ -19,7 +19,7 @@ First visit asks you to create the admin account. Deploying for real: see [DEPLO
 6. Accepts move the deal to LOI (a human step), stalled or far-too-low offers escalate to the broker.
 
 ## Pages
-- **Dashboard:** counts and recent activity.
+- **Dashboard:** counts, a **Needs attention** list (drafts to approve, undelivered emails, escalations, deals ready for LOI, screening reviews) that opens the right item, getting-started steps, and recent activity.
 - **Inventory:** aircraft, including private floor price and limits.
 - **Leads:** intake, screening, matching, open a deal.
 - **Deals:** negotiation thread, drafts, approval, email status and retry.
@@ -85,7 +85,7 @@ MAIL_ALLOWED_DOMAINS=yourdomain.com,example.com    # optional: only send to thes
 - Limits: sending happens inside the approve request (15 s timeout), no background queue, no bounce handling, outbound only. A crash mid-send leaves a message "sending": clear with `UPDATE messages SET delivery_status=NULL WHERE delivery_status='sending'`.
 
 ## Deploying
-[DEPLOY.md](DEPLOY.md): Docker Compose with automatic HTTPS (Caddy), health check, graceful shutdown, scheduled backups. Settings: `HOST` (default 127.0.0.1), `PORT`, `TRUST_PROXY` (number of reverse proxies in front, so lockouts use real client IPs), `COOKIE_SECURE=1`. `GET /healthz` returns `{"ok":true}` when the database responds. The Docker image itself has not been built in the environment this was written in.
+[DEPLOY.md](DEPLOY.md): Docker Compose with automatic HTTPS (Caddy), health check, graceful shutdown, scheduled backups. Settings: `HOST` (default 127.0.0.1), `PORT`, `TRUST_PROXY` (number of reverse proxies in front, so lockouts use real client IPs), `COOKIE_SECURE=1`. `GET /healthz` returns `{"ok":true}` when the database responds. `RATE_LIMIT_PER_MIN` (default 600 per client IP for `/api`, 0 = off) returns 429 with `Retry-After`. `LOG_REQUESTS=1` writes one access-log line per API call (method, path, status, time, user id; never bodies, emails or cookies). With `COOKIE_SECURE=1` the app also sends HSTS. The Docker image itself has not been built in the environment this was written in.
 
 ## Counterparty screening
 Every new lead is screened before it can become a deal. Result: **clear**, **needs review**, **screening error** or **list match**. Anything but clear holds the lead (no matches shown, no deal can be opened).
@@ -103,7 +103,7 @@ Inventory page, **Import from CSV** (admins and brokers). Download the template,
 - Fields are validated like the single-aircraft form (price ranges, floor <= list price, safe ids).
 
 ## Tests
-`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
+`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, request limiting, access log and HSTS, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
 
 ## Input handling and privacy
 - All write endpoints validate types and ranges (ids, prices, floor <= list, discounts, offers, playbook rules, scenarios) and return 400 instead of failing deep inside; text fields are length-limited.
