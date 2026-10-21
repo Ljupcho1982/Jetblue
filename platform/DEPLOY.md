@@ -6,10 +6,10 @@ One small server with Docker, a domain name, and ports 80/443 open. Caddy gets a
 
 ## First deploy
 1. Point a DNS `A` record for your domain (for example `deals.yourcompany.com`) at the server. Open ports 80 and 443 only.
-2. On the server: `git clone` this repo, `cd platform`, then `cp .env.example .env` and set `DOMAIN`. Add email and model settings if you want them (see README).
+2. On the server: `git clone` this repo, `cd platform`, then `cp .env.example .env` and set `DOMAIN` and `APP_SECRET` (`openssl rand -hex 32`; keep a copy somewhere safe, it protects the two-factor secrets). Add email and model settings if you want them (see README).
 3. `docker compose up -d --build`
 4. Open `https://<your domain>`. The first visit asks you to create the admin account. Do this right away, before sharing the address.
-5. Add brokers on the **Users** page. Test with `MAIL_ALLOWED_DOMAINS` set before letting email reach real buyers.
+5. Set up your own two-factor sign-in on the **Account** page (`.env.example` requires it for admins by default). Then add brokers on the **Users** page. Test with `MAIL_ALLOWED_DOMAINS` set before letting email reach real buyers.
 
 Optional local model: `docker compose --profile ollama up -d`, then `docker compose exec ollama ollama pull llama3.1:8b`, and set `LLM_PROVIDER=ollama`, `LLM_BASE_URL=http://ollama:11434/v1` in `.env` and `docker compose up -d`. A 8B model on CPU is slow; use a GPU or a smaller model.
 
@@ -40,4 +40,4 @@ Practice a restore once before you need it.
 `docker compose run --rm -v $PWD/data/db.json:/old.json:ro app node migrate-json.js /old.json`
 
 ## Not covered
-Several app servers behind a load balancer (SQLite is single-server), two-factor login, and monitoring/alerting. Watch `docker compose logs -f app` and point an uptime monitor at `/healthz`.
+Several app servers behind a load balancer (SQLite is single-server), SSO, and monitoring/alerting. Watch `docker compose logs -f app` and point an uptime monitor at `/healthz`.

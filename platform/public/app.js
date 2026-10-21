@@ -1,7 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US');
-let S = null, selectedDeal = null, ME = null, PERMS = [];
+let S = null, selectedDeal = null, ME = null, PERMS = [], MUST_ENROLL = false, MUST_POLICY = false;
 const can = (p) => PERMS.includes('*') || PERMS.includes(p);
 
 async function call(method, path, body) {
@@ -162,10 +162,11 @@ const pages = {
 pages.users = async function () {
   const users = await call('GET', 'users');
   return `<h1>Users</h1>
-  <div class="card"><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr>
+  <div class="card"><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>2FA</th><th></th></tr>
   ${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
     <td><select data-role="${u.id}">${['admin', 'broker', 'viewer'].map((r) => `<option ${r === u.role ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
     <td>${u.disabled ? '<span class="tag bad">disabled</span>' : '<span class="tag ok">active</span>'}</td>
+    <td>${u.twoFactor ? `<span class="tag ok">on</span> <button class="small secondary" data-reset2fa="${u.id}">Reset</button>` : '<span class="tag">off</span>'}</td>
     <td><button class="small secondary" data-toggle="${u.id}|${u.disabled ? 0 : 1}">${u.disabled ? 'Enable' : 'Disable'}</button>
       <button class="small secondary" data-reset="${u.id}">Reset password</button>
       ${u.id !== ME.id ? `<button class="small danger" data-rm="${u.id}">Delete</button>` : ''}</td></tr>`).join('')}</table>
@@ -180,7 +181,46 @@ pages.usersInit = function () {
   document.querySelectorAll('[data-role]').forEach((s) => s.onchange = async () => { await call('PUT', 'users/' + s.dataset.role, { role: s.value }).catch(() => {}); render(); });
   document.querySelectorAll('[data-toggle]').forEach((b) => b.onclick = async () => { const [id, dis] = b.dataset.toggle.split('|'); await call('PUT', 'users/' + id, { disabled: dis === '1' }).catch(() => {}); render(); });
   document.querySelectorAll('[data-reset]').forEach((b) => b.onclick = async () => { const pw = prompt('New password for this user (12+ chars). They will be signed out.'); if (pw) { await call('PUT', 'users/' + b.dataset.reset, { password: pw }); toast('Password reset'); } });
+  document.querySelectorAll('[data-reset2fa]').forEach((b) => b.onclick = async () => { if (confirm('Remove two-factor for this user? They will be signed out and can set it up again.')) { await call('PUT', 'users/' + b.dataset.reset2fa, { resetTwoFactor: true }); toast('Two-factor reset'); render(); } });
   document.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => { if (confirm('Delete this user?')) { await call('DELETE', 'users/' + b.dataset.rm).catch(() => {}); render(); } });
+};
+
+pages.account = function () {
+  return `<h1>Account</h1>
+  ${MUST_ENROLL ? '<div class="banner" style="border-color:var(--bad)">Your role requires two-factor sign-in. Set it up below to continue.</div>' : ''}
+  <div class="card"><h2>Two-factor sign-in</h2>
+    ${ME.twoFactor ? `<p>Status: <span class="tag ok">on</span></p>
+      <form id="tfManage"><div class="grid"><label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+      <label>Current code or recovery code<input name="code" required autocomplete="one-time-code"></label></div>
+      <button value="recovery">Generate new recovery codes</button>${MUST_POLICY ? '' : '<button value="disable" class="danger">Turn off</button>'}</form>`
+    : `<p class="muted small">Use an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password, Authy).</p>
+      <button id="tfStart">Set up two-factor</button><div id="tfSetup"></div>`}
+    <div id="tfCodes"></div></div>
+  <div class="card"><h2>Change password</h2><form id="pwForm"><div class="grid">
+    <label>Current password<input name="current" type="password" autocomplete="current-password" required></label>
+    <label>New password (12+ characters)<input name="next" type="password" minlength="12" autocomplete="new-password" required></label></div><button>Change password</button></form></div>`;
+};
+function showCodes(codes) {
+  $('#tfCodes').innerHTML = `<div class="limits" style="border-color:var(--ok)"><b>Save these recovery codes now.</b> Each works once if you lose your phone. They will not be shown again.<pre style="margin-top:8px;font-family:monospace">${codes.map(esc).join('\n')}</pre><button id="tfDone">I have saved them</button></div>`;
+  $('#tfDone').onclick = () => { MUST_ENROLL = false; render(); };
+}
+pages.accountInit = function () {
+  $('#pwForm').onsubmit = async (e) => { e.preventDefault(); await call('POST', 'me/password', form(e.target)); toast('Password changed'); e.target.reset(); };
+  const start = $('#tfStart');
+  if (start) start.onclick = async () => {
+    const s = await call('POST', 'me/2fa/setup'); start.classList.add('hidden');
+    $('#tfSetup').innerHTML = `<p class="small">1. In your authenticator app choose <b>add account → enter a setup key</b>, and enter:</p>
+      <pre style="font-family:monospace;user-select:all">${esc(s.secret)}</pre>
+      <p class="small muted">Account: ${esc(ME.email)}, type: time-based. (Apps that read links can use: <span style="word-break:break-all;user-select:all">${esc(s.uri)}</span>)</p>
+      <form id="tfEnable"><label>2. Enter the 6-digit code the app shows<input name="code" inputmode="numeric" maxlength="6" pattern="\\d{6}" required autocomplete="one-time-code"></label><button>Turn on</button></form>`;
+    $('#tfEnable').onsubmit = async (e) => { e.preventDefault(); const r = await call('POST', 'me/2fa/enable', form(e.target)); ME.twoFactor = true; $('#tfSetup').innerHTML = '<p class="ok">Two-factor is on.</p>'; showCodes(r.recoveryCodes); };
+  };
+  const mg = $('#tfManage');
+  if (mg) mg.onsubmit = async (e) => {
+    e.preventDefault(); const action = e.submitter && e.submitter.value, f = form(e.target);
+    if (action === 'disable') { if (!confirm('Turn off two-factor?')) return; await call('POST', 'me/2fa/disable', f); toast('Two-factor turned off'); render(); }
+    else { const r = await call('POST', 'me/2fa/recovery', f); showCodes(r.recoveryCodes); e.target.reset(); }
+  };
 };
 
 function authView(needsSetup) {
@@ -196,6 +236,21 @@ function authView(needsSetup) {
     const r = await fetch('/api/' + (needsSetup ? 'setup' : 'login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(form(e.target)) });
     const j = await r.json();
     if (!r.ok) { $('#authErr').textContent = j.error || 'Failed'; return; }
+    if (j.needs2fa) return codeView(j.ticket);
+    location.hash = '#/dashboard'; render();
+  };
+}
+
+function codeView(ticket) {
+  $('#view').innerHTML = `<div class="auth"><div class="card"><h1>Two-factor code</h1>
+    <p class="muted small">Enter the 6-digit code from your authenticator app, or one of your recovery codes.</p>
+    <form id="codeForm"><label>Code<input name="code" required autocomplete="one-time-code" autofocus></label><button>Verify</button> <button type="button" class="secondary" id="codeBack">Back</button><div class="err" id="authErr"></div></form></div></div>`;
+  $('#codeBack').onclick = () => authView(false);
+  $('#codeForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const r = await fetch('/api/login/2fa', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ticket, code: form(e.target).code }) });
+    const j = await r.json();
+    if (!r.ok) { $('#authErr').textContent = j.error || 'Failed'; if (r.status === 401 && /expired/i.test(j.error || '')) setTimeout(() => authView(false), 1500); return; }
     location.hash = '#/dashboard'; render();
   };
 }
@@ -203,13 +258,17 @@ function authView(needsSetup) {
 async function render() {
   const info = await (await fetch('/api/me')).json();
   if (!info.user) { ME = null; PERMS = []; return authView(info.needsSetup); }
-  ME = info.user; PERMS = info.perms; document.body.classList.remove('authed-out');
+  ME = info.user; PERMS = info.perms; MUST_ENROLL = info.mustEnroll; MUST_POLICY = info.twoFactorPolicy === 'all' || (info.twoFactorPolicy === 'admin' && ME.role === 'admin'); document.body.classList.remove('authed-out');
   $('#userBox').innerHTML = `${esc(ME.name)}<br><span class="muted">${esc(ME.role)}</span><br><button id="logout">Sign out</button>`;
   $('#logout').onclick = async () => { await call('POST', 'logout'); ME = null; render(); };
-  document.querySelectorAll('#nav a[data-perm]').forEach((l) => l.classList.toggle('hidden', !can(l.dataset.perm)));
-  await refresh();
+  if (MUST_ENROLL) { // blocked server-side until enrolled; show only the Account page
+    S = { inventory: [], leads: [], deals: [], activity: [], llm: {}, mail: {} };
+    document.querySelectorAll('#nav a').forEach((l) => l.classList.toggle('hidden', l.id !== 'accountLink'));
+    $('#llmStatus').textContent = ''; location.hash = '#/account';
+  } else { document.querySelectorAll('#nav a').forEach((l) => l.classList.toggle('hidden', !!l.dataset.perm && !can(l.dataset.perm))); await refresh(); }
   const name = (location.hash.replace('#/', '') || 'dashboard');
   const allowed = { training: 'playbook.write', users: 'users.manage' };
+  if (MUST_ENROLL) { $('#view').innerHTML = pages.account(); pages.accountInit(); return; }
   const page = pages[name] && (!allowed[name] || can(allowed[name])) ? name : 'dashboard';
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.getAttribute('href') === '#/' + page));
   $('#view').innerHTML = await pages[page]();

@@ -68,7 +68,18 @@ async function api(req, url, ctx) {
   const act = (msg) => store.activity.add(msg, user && user.email);
   const session = (u) => ({ user: auth.publicUser(u), perms: auth.permsOf(u), needsSetup: false, __cookie: auth.cookie(auth.createSession(u.id), auth.ABSOLUTE_MS / 1000) });
 
-  if (p[0] === 'me' && m === 'GET') return { user: user ? auth.publicUser(user) : null, perms: auth.permsOf(user), needsSetup: store.users.count() === 0 };
+  // Verifies a TOTP or recovery code for u and consumes it (TOTP steps cannot be replayed, recovery codes are single use).
+  const secondFactor = (u, code) => {
+    code = String(code || '').trim();
+    if (auth.isRecoveryFormat(code)) {
+      const h = auth.hashCode(code); if (!u.recoveryCodes.includes(h)) return false;
+      store.users.update(u.id, { recoveryCodes: u.recoveryCodes.filter((x) => x !== h) }); store.activity.add('Recovery code used', u.email); return true;
+    }
+    const step = auth.verifyTotp(auth.openSecret(u.totpSecret), code, u.lastTotpStep);
+    if (!step) return false; store.users.update(u.id, { lastTotpStep: step }); return true;
+  };
+
+  if (p[0] === 'me' && m === 'GET') return { user: user ? auth.publicUser(user) : null, perms: auth.permsOf(user), needsSetup: store.users.count() === 0, mustEnroll: auth.mustEnroll(user), twoFactorPolicy: auth.requirement() };
   if (p[0] === 'setup' && m === 'POST') { // first-run only: creates the initial admin
     if (store.users.count()) throw httpErr(403, 'Setup already completed');
     if (!auth.validEmail(b.email) || !b.name) throw httpErr(400, 'Valid email and name required');
@@ -77,16 +88,49 @@ async function api(req, url, ctx) {
     store.tx(() => { if (store.users.count()) throw httpErr(403, 'Setup already completed'); store.users.insert(u); store.activity.add('Admin account created', u.email); });
     return session(u);
   }
+  if (p[0] === 'login' && p[1] === '2fa' && m === 'POST') {
+    const t = auth.ticketFor(b.ticket); if (!t) throw httpErr(401, 'Sign-in expired. Please start again.');
+    const wait = auth.lockedFor(t.key); if (wait) throw httpErr(429, `Too many attempts. Try again in ${Math.ceil(wait / 60)} minute(s).`);
+    const u = store.users.byId(t.userId); if (!u || u.disabled || !u.totpEnabled) throw httpErr(401, 'Sign-in expired. Please start again.');
+    if (!secondFactor(u, b.code)) { auth.failTicket(t.id); auth.recordFail(t.key); store.activity.add('Failed two-factor code', u.email); throw httpErr(401, 'Invalid code'); }
+    auth.dropTicket(t.id); auth.clearFails(t.key); store.activity.add('Login (2FA)', u.email); return session(u);
+  }
   if (p[0] === 'login' && m === 'POST') {
     const email = String(b.email || '').toLowerCase(), key = ctx.ip + '|' + email;
     const wait = auth.lockedFor(key); if (wait) throw httpErr(429, `Too many attempts. Try again in ${Math.ceil(wait / 60)} minute(s).`);
     const found = store.users.byEmail(email), u = found && !found.disabled ? found : undefined;
     if (!(await auth.verifyPassword(String(b.password || ''), u))) { auth.recordFail(key); store.activity.add('Failed login', email); throw httpErr(401, 'Invalid email or password'); }
+    if (u.totpEnabled) return { needs2fa: true, ticket: auth.createTicket(u.id, key) }; // lockout counter is cleared only after the second factor
     auth.clearFails(key); store.activity.add('Login', u.email); return session(u);
   }
   if (p[0] === 'logout' && m === 'POST') { auth.endSession(ctx.token); return { ok: true, __cookie: auth.cookie('', 0) }; }
   if (!user) throw httpErr(401, 'Login required');
+  if (auth.mustEnroll(user) && p[0] !== 'me') throw httpErr(403, 'Two-factor setup is required before you can continue');
 
+  if (p[0] === 'me' && p[1] === '2fa' && m === 'POST') {
+    if (p[2] === 'setup') {
+      if (user.totpEnabled) throw httpErr(409, 'Two-factor is already on');
+      const secret = auth.newSecret(); store.users.update(user.id, { totpSecret: auth.sealSecret(secret) });
+      return { secret, uri: auth.otpauthUri(secret, user.email) };
+    }
+    if (p[2] === 'enable') {
+      if (user.totpEnabled) throw httpErr(409, 'Two-factor is already on');
+      if (!user.totpSecret) throw httpErr(400, 'Start setup first');
+      const step = auth.verifyTotp(auth.openSecret(user.totpSecret), String(b.code || '').trim(), 0);
+      if (!step) throw httpErr(400, 'That code is not valid. Check the time on your phone and try the next code.');
+      const codes = auth.newRecoveryCodes();
+      store.tx(() => { store.users.update(user.id, { totpEnabled: true, lastTotpStep: step, recoveryCodes: codes.map(auth.hashCode) }); act('Two-factor enabled'); });
+      return { ok: true, recoveryCodes: codes };
+    }
+    if (p[2] === 'disable' || p[2] === 'recovery') { // both need the password and a current second factor
+      if (!user.totpEnabled) throw httpErr(409, 'Two-factor is not on');
+      if (p[2] === 'disable' && (auth.requirement() === 'all' || (auth.requirement() === 'admin' && user.role === 'admin'))) throw httpErr(400, 'Two-factor is required for your role');
+      if (!(await auth.verifyPassword(String(b.password || ''), user))) throw httpErr(403, 'Password is wrong');
+      if (!secondFactor(user, b.code)) throw httpErr(403, 'Invalid code');
+      if (p[2] === 'disable') { store.tx(() => { store.users.update(user.id, { totpEnabled: false, totpSecret: null, recoveryCodes: [], lastTotpStep: 0 }); act('Two-factor disabled'); }); return { ok: true }; }
+      const codes = auth.newRecoveryCodes(); store.users.update(user.id, { recoveryCodes: codes.map(auth.hashCode) }); act('Recovery codes regenerated'); return { ok: true, recoveryCodes: codes };
+    }
+  }
   if (p[0] === 'me' && p[1] === 'password' && m === 'POST') {
     if (!(await auth.verifyPassword(String(b.current || ''), user))) throw httpErr(403, 'Current password is wrong');
     const bad = auth.checkPassword(b.next, user.email); if (bad) throw httpErr(400, bad);
@@ -119,6 +163,7 @@ async function api(req, url, ctx) {
         if (typeof b.disabled === 'boolean' && b.disabled !== t.disabled) { f.disabled = b.disabled; revoke = true; }
         if (b.name) f.name = String(b.name).slice(0, 100);
         if (pw) { Object.assign(f, pw); revoke = true; }
+        if (b.resetTwoFactor === true) { Object.assign(f, { totpEnabled: false, totpSecret: null, recoveryCodes: [], lastTotpStep: 0 }); revoke = true; }
         store.users.update(t.id, f); if (revoke) auth.endUserSessions(t.id);
         act('User updated: ' + t.email); return auth.publicUser(store.users.byId(t.id));
       });

@@ -48,6 +48,11 @@ const MIGRATIONS = [`
   ALTER TABLE messages ADD COLUMN delivery_status TEXT;
   ALTER TABLE messages ADD COLUMN delivery_error TEXT;
   ALTER TABLE messages ADD COLUMN delivered_at TEXT;
+`, `
+  ALTER TABLE users ADD COLUMN totp_secret TEXT;
+  ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN recovery_codes TEXT;
+  ALTER TABLE users ADD COLUMN last_totp_step INTEGER NOT NULL DEFAULT 0;
 `];
 function migrate() {
   let v = db.prepare('PRAGMA user_version').get().user_version;
@@ -92,7 +97,7 @@ Negotiation: understand priorities before price; trade concessions rather than o
 });
 
 // ---- users & sessions ----
-const userRow = (r) => (r ? { id: r.id, email: r.email, name: r.name, role: r.role, salt: r.salt, hash: r.hash, disabled: !!r.disabled, createdAt: r.created_at } : undefined);
+const userRow = (r) => (r ? { id: r.id, email: r.email, name: r.name, role: r.role, salt: r.salt, hash: r.hash, disabled: !!r.disabled, createdAt: r.created_at, totpSecret: r.totp_secret, totpEnabled: !!r.totp_enabled, recoveryCodes: r.recovery_codes ? JSON.parse(r.recovery_codes) : [], lastTotpStep: r.last_totp_step } : undefined);
 const users = {
   count: () => q('SELECT COUNT(*) n FROM users').get().n,
   activeAdmins: () => q("SELECT COUNT(*) n FROM users WHERE role='admin' AND disabled=0").get().n,
@@ -101,8 +106,8 @@ const users = {
   byEmail: (email) => userRow(q('SELECT * FROM users WHERE email=?').get(email)),
   insert: (u) => { q('INSERT INTO users (id,email,name,role,salt,hash,disabled,created_at) VALUES (?,?,?,?,?,?,0,?)').run(u.id, u.email, u.name, u.role, u.salt, u.hash, u.createdAt); },
   update: (id, f) => {
-    const map = { name: 'name', role: 'role', salt: 'salt', hash: 'hash', disabled: 'disabled' }, cols = [], vals = [];
-    for (const [k, c] of Object.entries(map)) if (f[k] !== undefined) { cols.push(c + '=?'); vals.push(k === 'disabled' ? +f[k] : f[k]); }
+    const map = { name: 'name', role: 'role', salt: 'salt', hash: 'hash', disabled: 'disabled', totpSecret: 'totp_secret', totpEnabled: 'totp_enabled', recoveryCodes: 'recovery_codes', lastTotpStep: 'last_totp_step' }, cols = [], vals = [];
+    for (const [k, c] of Object.entries(map)) if (f[k] !== undefined) { cols.push(c + '=?'); vals.push(k === 'disabled' || k === 'totpEnabled' ? +f[k] : k === 'recoveryCodes' ? JSON.stringify(f[k]) : f[k]); }
     if (cols.length) q(`UPDATE users SET ${cols.join(',')} WHERE id=?`).run(...vals, id);
   },
   delete: (id) => { q('DELETE FROM users WHERE id=?').run(id); },
