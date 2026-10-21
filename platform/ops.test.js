@@ -1,7 +1,7 @@
 // Operations: health check, proxy-aware lockout, scheduled backups, graceful shutdown.
 const os = require('os'), path = require('path'), fs = require('fs'), assert = require('assert'), { spawn } = require('child_process');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deal-ops-'));
-const env = { ...process.env, DB_FILE: path.join(dir, 'ops.db'), PORT: '3457', HOST: '127.0.0.1', TRUST_PROXY: '1', BACKUP_DIR: path.join(dir, 'bk'), BACKUP_KEEP: '2', NODE_OPTIONS: '--disable-warning=ExperimentalWarning' };
+const env = { ...process.env, DB_FILE: path.join(dir, 'ops.db'), PORT: '3457', HOST: '127.0.0.1', TRUST_PROXY: '1', BACKUP_DIR: path.join(dir, 'bk'), BACKUP_KEEP: '2', LOG_REQUESTS: '1', COOKIE_SECURE: '1', NODE_OPTIONS: '--disable-warning=ExperimentalWarning' };
 delete env.LLM_PROVIDER; delete env.ANTHROPIC_API_KEY; delete env.MAIL_PROVIDER;
 const base = 'http://127.0.0.1:3457';
 fs.mkdirSync(env.BACKUP_DIR); for (const f of ['platform-2020-01-01.db', 'platform-2020-01-02.db']) fs.writeFileSync(path.join(env.BACKUP_DIR, f), 'old');
@@ -16,6 +16,7 @@ const post = (p, body, ip) => fetch(base + '/api/' + p, { method: 'POST', header
     for (let i = 0; i < 50 && !(await fetch(base + '/healthz').then((r) => r.ok, () => false)); i++) await sleep(100);
     const h = await fetch(base + '/healthz'); assert.equal(h.status, 200); assert.deepEqual(await h.json(), { ok: true });
     assert.equal(h.headers.get('x-frame-options'), 'DENY');
+    assert.match(h.headers.get('strict-transport-security'), /max-age=\d+/, 'HSTS when COOKIE_SECURE=1');
 
     // Behind one proxy, lockout is per client address taken from X-Forwarded-For (spoofed left entries are ignored)
     await post('setup', { email: 'a@x.com', name: 'A', password: 'correct horse battery staple' }, '1.1.1.1');
@@ -30,6 +31,10 @@ const post = (p, body, ip) => fetch(base + '/api/' + p, { method: 'POST', header
     const { DatabaseSync } = require('node:sqlite');
     assert.equal(new DatabaseSync(path.join(env.BACKUP_DIR, files[1])).prepare('SELECT COUNT(*) n FROM users').get().n, 1);
     assert.equal(fs.statSync(path.join(env.BACKUP_DIR, files[1])).mode & 0o077, 0, 'backup must not be group/world readable');
+
+    // Access log: one line per API call, never bodies, emails, passwords or cookies
+    assert.match(log, /POST \/api\/setup 200 \d+ms user=-/); assert.match(log, /POST \/api\/login 200 \d+ms user=-/);
+    assert.ok(!/correct horse|a@x\.com|wrong-wrong|sid=/.test(log), 'sensitive data in access log');
 
     // Graceful shutdown: exits 0 and checkpoints the WAL
     child.kill('SIGTERM');

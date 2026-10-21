@@ -411,12 +411,27 @@ async function api(req, url, ctx) {
   throw httpErr(404, 'not found');
 }
 
+// Fixed-window request limit per client IP for /api (RATE_LIMIT_PER_MIN, default 600, 0 = off).
+const hits = new Map();
+function rateLimited(ip) {
+  const max = process.env.RATE_LIMIT_PER_MIN === undefined ? 600 : Number(process.env.RATE_LIMIT_PER_MIN); if (!max) return false;
+  const win = Math.floor(Date.now() / 60000), h = hits.get(ip);
+  if (!h || h.win !== win) { if (hits.size > 10000) hits.clear(); hits.set(ip, { win, n: 1 }); return false; }
+  return ++h.n > max;
+}
+const LOG = () => process.env.LOG_REQUESTS === '1'; // one line per API call: method, path, status, ms, user id. Never bodies, cookies or query strings.
+
 const SECURITY = { 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer',
   'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'" };
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
-  const send = (status, headers, data) => { res.writeHead(status, { ...SECURITY, ...headers }); res.end(data); };
+  const t0 = Date.now(); let uid = '-';
+  const hsts = process.env.COOKIE_SECURE === '1' ? { 'strict-transport-security': 'max-age=31536000; includeSubDomains' } : {};
+  const send = (status, headers, data) => {
+    res.writeHead(status, { ...SECURITY, ...hsts, ...headers }); res.end(data);
+    if (LOG() && url.pathname.startsWith('/api/')) console.log(`${new Date().toISOString()} ${req.method} ${url.pathname} ${status} ${Date.now() - t0}ms user=${uid}`);
+  };
   try {
     if (url.pathname === '/healthz') { // liveness + database check for load balancers; exposes no data
       store.db.prepare('SELECT 1').get();
@@ -429,6 +444,8 @@ const server = http.createServer(async (req, res) => {
       }
       const token = auth.parseCookies(req.headers.cookie).sid;
       const ctx = { token, user: auth.sessionUser(token), ip: clientIp(req) };
+      uid = ctx.user ? ctx.user.id : '-';
+      if (rateLimited(ctx.ip)) { res.setHeader('retry-after', '60'); throw httpErr(429, 'Too many requests. Slow down and try again in a minute.'); }
       const out = await api(req, url, ctx);
       if (out && out.__raw !== undefined) return send(200, { 'content-type': 'application/x-ndjson', 'content-disposition': 'attachment; filename=finetune.jsonl', 'x-example-count': String(out.count), 'cache-control': 'no-store' }, out.__raw);
       const headers = { 'content-type': 'application/json', 'cache-control': 'no-store' };

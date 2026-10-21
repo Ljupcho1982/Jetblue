@@ -1,7 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US');
-let S = null, selectedDeal = null, ME = null, PERMS = [], MUST_ENROLL = false, MUST_POLICY = false;
+let TODO = [], S = null, selectedDeal = null, ME = null, PERMS = [], MUST_ENROLL = false, MUST_POLICY = false;
 const can = (p) => PERMS.includes('*') || PERMS.includes(p);
 
 async function call(method, path, body) {
@@ -39,7 +39,19 @@ function deliveryHtml(m) {
 
 const pages = {
   dashboard() {
-    const pending = S.deals.flatMap((d) => d.messages.filter((m) => m.status === 'draft').map(() => d)).length;
+    const name = (id) => aircraft(id)?.model || id, todo = [];
+    for (const d of S.deals) {
+      for (const m of d.messages) {
+        if (m.status === 'draft') todo.push({ kind: 'Draft to approve', tone: 'warn', text: `${d.buyer}, ${name(d.aircraftId)}`, deal: d.id });
+        if (m.status === 'sent' && ['failed', 'blocked', 'skipped'].includes(m.deliveryStatus)) todo.push({ kind: 'Email not delivered', tone: 'warn', text: `${d.buyer}, ${name(d.aircraftId)}`, deal: d.id });
+      }
+      if (d.stage === 'escalated') todo.push({ kind: 'Escalated to broker', tone: 'bad', text: `${d.buyer}, ${name(d.aircraftId)}`, deal: d.id });
+      if (d.stage === 'LOI') todo.push({ kind: 'Ready for letter of intent', tone: 'ok', text: `${d.buyer}, ${name(d.aircraftId)}`, deal: d.id });
+    }
+    for (const l of S.leads) if (['review', 'error'].includes(l.screening.status)) todo.push({ kind: 'Screening needs review', tone: 'warn', text: `${l.name}${l.company ? ', ' + l.company : ''}`, lead: true });
+    TODO = todo;
+    const pending = S.deals.reduce((n, d) => n + d.messages.filter((m) => m.status === 'draft').length, 0);
+    const fresh = !S.leads.length && !S.deals.length;
     return `<h1>Dashboard</h1>
     <div class="stats">
       <div class="stat"><b>${S.inventory.length}</b>Aircraft listed</div>
@@ -49,7 +61,17 @@ const pages = {
       <div class="stat"><b>${S.deals.filter((d) => d.stage === 'escalated').length}</b>Escalated</div>
       <div class="stat"><b>${S.deals.filter((d) => d.stage === 'LOI').length}</b>At LOI</div>
     </div>
-    <div class="card"><h2>Recent activity</h2>${S.activity.length ? '<table>' + S.activity.slice(0, 12).map((a) => `<tr><td class="muted small" style="width:150px">${new Date(a.at).toLocaleString()}</td><td>${esc(a.msg)}</td></tr>`).join('') + '</table>' : '<p class="muted">Nothing yet. Add a lead to get started.</p>'}</div>`;
+    ${fresh && can('leads.write') ? `<div class="card"><h2>Getting started</h2><ol class="steps">
+      <li>${S.inventory.length ? `<span class="ok">Done</span>` : ''} <a href="#/inventory">Load your aircraft</a> (import a CSV or add them one by one) and set each aircraft's private floor price and limits.</li>
+      <li><a href="#/leads">Add a buyer or lessee enquiry.</a> It is screened, then matched to your aircraft.</li>
+      <li>Open a deal, enter the buyer's offer, and review the drafted reply. Nothing is sent until a broker approves it.</li>
+      ${can('users.manage') ? '<li><a href="#/users">Invite your brokers</a> and set up two-factor sign-in under <a href="#/account">Account</a>.</li>' : ''}</ol></div>` : ''}
+    <div class="card"><h2>Needs attention ${todo.length ? `<span class="tag warn">${todo.length}</span>` : ''}</h2>
+      ${todo.length ? `<table>${todo.map((t, i) => `<tr><td style="width:210px"><span class="tag ${t.tone}">${esc(t.kind)}</span></td><td>${esc(t.text)}</td><td style="width:90px"><button class="small secondary" data-goto="${i}">Open</button></td></tr>`).join('')}</table>` : '<p class="muted">Nothing needs your attention right now.</p>'}</div>
+    <div class="card"><h2>Recent activity</h2>${S.activity.length ? '<table>' + S.activity.slice(0, 12).map((a) => `<tr><td class="muted small" style="width:170px">${new Date(a.at).toLocaleString()}</td><td>${esc(a.msg)}</td><td class="muted small">${esc(a.who || '')}</td></tr>`).join('') + '</table>' : '<p class="muted">No activity yet.</p>'}</div>`;
+  },
+  dashboardInit() {
+    document.querySelectorAll('[data-goto]').forEach((b) => b.onclick = () => { const t = TODO[+b.dataset.goto]; if (t.deal) { selectedDeal = t.deal; location.hash = '#/deals'; } else location.hash = '#/leads'; });
   },
 
   inventory() {
@@ -309,7 +331,7 @@ async function render() {
   if (MUST_ENROLL) { $('#view').innerHTML = pages.account(); pages.accountInit(); return; }
   const page = pages[name] && (!allowed[name] || can(allowed[name])) ? name : 'dashboard';
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.getAttribute('href') === '#/' + page));
-  $('#view').innerHTML = await pages[page]();
+  $('#view').innerHTML = (S.demo && can('view.full') ? '<div class="banner"><b>Demo mode.</b> The aircraft are sample listings with invented prices. Start the server with SEED_DEMO=0 for real use.</div>' : '') + await pages[page]();
   if (pages[page + 'Init']) pages[page + 'Init']();
 }
 window.addEventListener('hashchange', render);

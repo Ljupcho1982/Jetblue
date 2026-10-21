@@ -9,6 +9,14 @@
     { id: 'TP-02', model: 'Dash 8-400', type: 'turboprop', year: 2012, hours: 22000, seats: 74, rangeNm: 1100, location: 'Toronto', listPrice: 14000000, floor: 12800000, maxDiscountPct: 8, leaseMonthly: 130000, minLeaseMonthly: 118000, minTermMonths: 48 },
     { id: 'LJ-01', model: 'Embraer Phenom 300', type: 'light jet', year: 2015, hours: 4200, seats: 8, rangeNm: 1971, location: 'Frankfurt', listPrice: 6200000, floor: 5700000, maxDiscountPct: 7, leaseMonthly: 62000, minLeaseMonthly: 56000, minTermMonths: 24 },
     { id: 'RJ-01', model: 'Embraer E175', type: 'regional jet', year: 2014, hours: 31000, seats: 78, rangeNm: 2200, location: 'Dublin', listPrice: 21000000, floor: 19000000, maxDiscountPct: 9, leaseMonthly: 190000, minLeaseMonthly: 172000, minTermMonths: 60 },
+    // Sample listings for the demo. Specifications are indicative only and the prices are invented.
+    { id: 'TP-03', model: 'ATR 42-600', type: 'turboprop', year: 2016, hours: 14200, seats: 48, rangeNm: 726, location: 'Toulouse', listPrice: 11800000, floor: 10900000, maxDiscountPct: 8, leaseMonthly: 108000, minLeaseMonthly: 98000, minTermMonths: 36 },
+    { id: 'TP-04', model: 'Saab 340B+', type: 'turboprop', year: 2001, hours: 52000, seats: 34, rangeNm: 810, location: 'Stockholm', listPrice: 2400000, floor: 2100000, maxDiscountPct: 10, leaseMonthly: 28000, minLeaseMonthly: 24000, minTermMonths: 24 },
+    { id: 'TP-05', model: 'Dash 8-300', type: 'turboprop', year: 2002, hours: 41000, seats: 50, rangeNm: 800, location: 'Vancouver', listPrice: 4600000, floor: 4100000, maxDiscountPct: 9, leaseMonthly: 52000, minLeaseMonthly: 46000, minTermMonths: 24 },
+    { id: 'LJ-02', model: 'Cessna Citation CJ3+', type: 'light jet', year: 2014, hours: 3800, seats: 7, rangeNm: 1875, location: 'Dallas', listPrice: 4900000, floor: 4400000, maxDiscountPct: 7, leaseMonthly: 48000, minLeaseMonthly: 43000, minTermMonths: 24 },
+    { id: 'LJ-03', model: 'Embraer Phenom 100E', type: 'light jet', year: 2018, hours: 1900, seats: 6, rangeNm: 1178, location: 'London', listPrice: 3900000, floor: 3600000, maxDiscountPct: 6, leaseMonthly: 39000, minLeaseMonthly: 35000, minTermMonths: 24 },
+    { id: 'RJ-02', model: 'Bombardier CRJ-900', type: 'regional jet', year: 2010, hours: 36000, seats: 76, rangeNm: 1550, location: 'Atlanta', listPrice: 15500000, floor: 13900000, maxDiscountPct: 9, leaseMonthly: 150000, minLeaseMonthly: 135000, minTermMonths: 48 },
+    { id: 'RJ-03', model: 'Embraer E190', type: 'regional jet', year: 2011, hours: 38000, seats: 100, rangeNm: 2400, location: 'Amsterdam', listPrice: 19500000, floor: 17600000, maxDiscountPct: 9, leaseMonthly: 175000, minLeaseMonthly: 158000, minTermMonths: 60 },
   ];
 
   // Placeholder only. Real screening must use a proper sanctions/KYC provider.
