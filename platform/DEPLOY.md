@@ -13,6 +13,9 @@ One small server with Docker, a domain name, and ports 80/443 open. Caddy gets a
 
 Optional local model: `docker compose --profile ollama up -d`, then `docker compose exec ollama ollama pull llama3.1:8b`, and set `LLM_PROVIDER=ollama`, `LLM_BASE_URL=http://ollama:11434/v1` in `.env` and `docker compose up -d`. A 8B model on CPU is slow; use a GPU or a smaller model.
 
+## Screening list
+Download the sanctions lists that apply to you, save as `platform/sanctions/list.csv`, and set `SANCTIONS_FILE=/sanctions/list.csv` in `.env`. Refresh it regularly (a cron job that overwrites the file is enough; changes are picked up automatically). If `SANCTIONS_FILE` is set but the file is missing or unreadable, every new lead is held with a screening error rather than waved through.
+
 ## What is already handled
 - HTTPS and cookie security (`COOKIE_SECURE=1`), only Caddy is exposed; the app is not published directly.
 - Correct client IPs behind the proxy (`TRUST_PROXY=1`), so one person's failed logins do not lock out everyone.

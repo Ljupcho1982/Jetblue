@@ -17,6 +17,17 @@ const aircraft = (id) => S.inventory.find((a) => a.id === id);
 const priceOf = (a, mode) => (mode === 'lease' ? fmt(a.leaseMonthly) + '/mo' : fmt(a.listPrice));
 const form = (el) => Object.fromEntries(new FormData(el));
 
+function screeningHtml(l) {
+  const s = l.screening, st = s.status || (s.ok ? 'clear' : 'hit');
+  const tag = s.override ? '<span class="tag ok">cleared by reviewer</span>' : { clear: '<span class="tag ok">screening clear</span>', review: '<span class="tag warn">needs review</span>', error: '<span class="tag warn">screening error</span>', hit: '<span class="tag bad">list match: on hold</span>' }[st];
+  const reasons = (s.reasons || (s.reason ? [s.reason] : [])).map((r) => `<div class="small warn">• ${esc(r)}</div>`).join('');
+  const ov = s.override ? `<div class="small muted">Cleared by ${esc(s.override.by)} (was ${esc(s.override.previous)}): ${esc(s.override.note)}</div>` : '';
+  const acts = []; if (!s.ok && st !== 'hit' && can('leads.write')) acts.push(`<button class="small secondary" data-rescreen="${esc(l.id)}">Re-run screening</button>`);
+  if (!s.ok && st !== 'hit' && can('compliance.review')) acts.push(`<button class="small secondary" data-clear="${esc(l.id)}">Clear after review</button>`);
+  if (!s.ok && st === 'hit') acts.push('<span class="small muted">Cannot be cleared here. Escalate to compliance.</span>');
+  return `${tag}${reasons}${ov}${acts.length ? '<div style="margin-top:4px">' + acts.join(' ') + '</div>' : ''}`;
+}
+
 function deliveryHtml(m) {
   const w = can('deals.write'), st = m.deliveryStatus;
   if (st === 'sent') return `<div class="small ok">✓ Emailed to buyer ${m.deliveredAt ? new Date(m.deliveredAt).toLocaleString() : ''}</div>`;
@@ -102,12 +113,14 @@ const pages = {
       <label>Max age (yrs)<input name="maxAge" type="number"></label><label>Budget (per month if lease)<input name="budget" type="number"></label>
     </div><button>Screen and match</button></form></div>` : ''}
     ${S.leads.map((l) => `<div class="card"><b>${esc(l.name)}</b> ${esc(l.company || '')} <span class="muted">· ${esc(l.country)} · ${esc(l.request.mode)}${l.email ? ' · ' + esc(l.email) : ''}</span>
-      <span class="tag ${l.screening.ok ? 'ok' : 'bad'}">${l.screening.ok ? 'screening passed (demo)' : 'compliance hold: ' + esc(l.screening.reason)}</span>
+      ${screeningHtml(l)}
       ${l.matches.map((m) => { const a = aircraft(m.aircraftId); return a ? `<div style="margin-top:8px">${esc(a.model)} <span class="tag">${esc(a.id)}</span> <span class="tag">match ${m.score}</span> ${priceOf(a, l.request.mode)} <span class="warn small">${esc(m.reasons.join(', '))}</span> ${can('deals.write') ? `<button class="small secondary" data-open="${esc(l.id)}|${esc(a.id)}">Open deal</button>` : ''}</div>` : ''; }).join('')}
       ${l.screening.ok && !l.matches.length ? '<p class="muted small">No matching aircraft. Source inventory.</p>' : ''}</div>`).join('')}`;
   },
   leadsInit() {
     if ($('#leadForm')) $('#leadForm').onsubmit = async (e) => { e.preventDefault(); await call('POST', 'leads', form(e.target)); await render(); };
+    document.querySelectorAll('[data-rescreen]').forEach((b) => b.onclick = async () => { b.disabled = true; await call('POST', `leads/${b.dataset.rescreen}/rescreen`).catch(() => {}); render(); });
+    document.querySelectorAll('[data-clear]').forEach((b) => b.onclick = async () => { const note = prompt('Why is this counterparty acceptable? (recorded, at least 10 characters)'); if (note) { await call('POST', `leads/${b.dataset.clear}/clear`, { note }).catch(() => {}); render(); } });
     document.querySelectorAll('[data-open]').forEach((b) => b.onclick = async () => { const [leadId, aircraftId] = b.dataset.open.split('|'); const d = await call('POST', 'deals', { leadId, aircraftId }); selectedDeal = d.id; location.hash = '#/deals'; });
   },
 

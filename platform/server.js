@@ -9,6 +9,7 @@ const llm = require('./llm.js');
 const auth = require('./auth.js');
 const mailer = require('./mailer.js');
 const { parseCsv } = require('./csv.js');
+const screening = require('./screening.js');
 
 const PUBLIC = path.join(__dirname, 'public');
 // TRUST_PROXY=<number of reverse proxies in front>. With 0 the socket address is used. Behind a proxy, take the
@@ -89,7 +90,7 @@ function importInventory(csv, dryRun) {
 function redactedState(st) {
   return {
     inventory: st.inventory.map((a) => Object.fromEntries(Object.entries(a).filter(([k]) => !PRIVATE_AIRCRAFT.includes(k)))),
-    leads: st.leads.map(({ email, ...l }) => l),
+    leads: st.leads.map(({ email, screening: s, ...l }) => ({ ...l, screening: { ok: s.ok, status: s.status } })),
     deals: st.deals.map((d) => ({ ...d, messages: d.messages.filter((x) => x.role === 'buyer' || x.status === 'sent').map(({ facts, original, note, flags, source, deliveryError, ...x }) => x) })),
     activity: st.activity, playbook: null, learned: [], llm: { enabled: st.llm.enabled }, mail: { enabled: st.mail.enabled },
   };
@@ -231,7 +232,7 @@ async function api(req, url, ctx) {
   }
 
   if (p[0] === 'state' && m === 'GET') {
-    const st = { inventory: store.aircraft.list(), leads: store.leads.list(), deals: store.deals.list(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe(), mail: mailer.describe(), demo: DEMO() };
+    const st = { inventory: store.aircraft.list(), leads: store.leads.list(), deals: store.deals.list(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe(), mail: mailer.describe(), demo: DEMO(), screening: screening.describe() };
     if (!auth.can(user, 'users.manage')) st.activity = st.activity.filter((x) => !AUTH_EVENT.test(x.msg));
     return auth.can(user, 'view.full') ? st : redactedState(st);
   }
@@ -256,6 +257,27 @@ async function api(req, url, ctx) {
     }
   }
 
+  if (p[0] === 'leads' && p[2] === 'rescreen' && m === 'POST') { // re-run after an error or after the list/provider changed
+    need('leads.write');
+    const lead = store.leads.get(p[1]); if (!lead) throw httpErr(404, 'lead not found');
+    if (lead.screening.override) throw httpErr(409, 'This lead was already cleared by a reviewer');
+    const screen = await screening.screen({ name: lead.name, company: lead.company, country: lead.country });
+    const request = lead.request, matches = screen.ok ? Logic.matchAircraft(request, store.aircraft.list()).map((x) => ({ aircraftId: x.aircraft.id, score: x.score, reasons: x.reasons })) : [];
+    store.tx(() => { store.leads.setScreening(lead.id, screen, screen.ok ? 'qualified' : 'compliance-hold', matches); act(`Screening re-run on lead ${lead.id}: ${screen.status}`); });
+    return store.leads.get(lead.id);
+  }
+  if (p[0] === 'leads' && p[2] === 'clear' && m === 'POST') { // human compliance decision, recorded with a reason
+    need('compliance.review');
+    const lead = store.leads.get(p[1]); if (!lead) throw httpErr(404, 'lead not found');
+    if (lead.screening.ok) throw httpErr(409, 'Lead is not on hold');
+    const st = lead.screening.status || 'hit'; // legacy records without a status were country-list holds
+    if (st === 'hit') throw httpErr(409, 'A confirmed list match cannot be cleared in this app. Escalate to your compliance officer.');
+    const note = str(b.note, 1000); if (note.length < 10) throw httpErr(400, 'A review note of at least 10 characters is required');
+    const screen = { ...lead.screening, ok: true, override: { by: user.email, note, at: new Date().toISOString(), previous: lead.screening.status } };
+    const matches = Logic.matchAircraft(lead.request, store.aircraft.list()).map((x) => ({ aircraftId: x.aircraft.id, score: x.score, reasons: x.reasons }));
+    store.tx(() => { store.leads.setScreening(lead.id, screen, 'qualified', matches); act(`Compliance cleared lead ${lead.id} (was ${st})`); });
+    return store.leads.get(lead.id);
+  }
   if (p[0] === 'leads' && m === 'PUT' && p[1]) {
     need('leads.write');
     if (!store.leads.get(p[1])) throw httpErr(404, 'lead not found');
@@ -266,9 +288,9 @@ async function api(req, url, ctx) {
     need('leads.write');
     if (!['buy', 'lease'].includes(b.mode)) throw httpErr(400, 'mode must be buy or lease');
     const request = { mode: b.mode, type: str(b.type || 'any', 40), seats: optNum(b.seats, 0, 1000, 'seats'), rangeNm: optNum(b.rangeNm, 0, 20000, 'rangeNm'), maxAge: optNum(b.maxAge, 0, 100, 'maxAge'), budget: optNum(b.budget, 0, 1e10, 'budget') };
-    const screening = Logic.screen({ country: str(b.country, 60) });
-    const lead = { id: id(), createdAt: new Date().toISOString(), name: str(b.name, 100), company: str(b.company, 100) || null, country: str(b.country, 60), request, screening, status: screening.ok ? 'qualified' : 'compliance-hold',
-      matches: screening.ok ? Logic.matchAircraft(request, store.aircraft.list()).map((x) => ({ aircraftId: x.aircraft.id, score: x.score, reasons: x.reasons })) : [] };
+    const screen = await screening.screen({ name: str(b.name, 100), company: str(b.company, 100), country: str(b.country, 60) });
+    const lead = { id: id(), createdAt: new Date().toISOString(), name: str(b.name, 100), company: str(b.company, 100) || null, country: str(b.country, 60), request, screening: screen, status: screen.ok ? 'qualified' : 'compliance-hold',
+      matches: screen.ok ? Logic.matchAircraft(request, store.aircraft.list()).map((x) => ({ aircraftId: x.aircraft.id, score: x.score, reasons: x.reasons })) : [] };
     if (!lead.name) throw httpErr(400, 'name required');
     if (b.email) { if (!mailer.validEmail(b.email)) throw httpErr(400, 'Invalid buyer email'); lead.email = b.email.toLowerCase(); }
     store.tx(() => { store.leads.insert(lead); act(`Lead ${lead.name}: ${lead.status}, ${lead.matches.length} match(es)`); });

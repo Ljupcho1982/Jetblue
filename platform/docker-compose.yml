@@ -10,6 +10,7 @@ services:
     volumes:
       - data:/data          # SQLite database
       - backups:/backups    # daily backups, last 14 kept (BACKUP_EVERY_HOURS / BACKUP_KEEP to change)
+      - ./sanctions:/sanctions:ro   # put your sanctions list file here (see SANCTIONS_FILE in .env)
     expose: ["3000"]        # reachable only through Caddy, never published directly
 
   caddy:

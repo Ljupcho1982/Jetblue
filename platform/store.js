@@ -143,6 +143,7 @@ const leads = {
   list: () => q('SELECT * FROM leads ORDER BY created_at DESC, rowid DESC').all().map(leadRow),
   get: (id) => leadRow(q('SELECT * FROM leads WHERE id=?').get(id)),
   insert: (l) => { q('INSERT INTO leads (id,created_at,name,company,email,country,status,request,screening,matches) VALUES (?,?,?,?,?,?,?,?,?,?)').run(l.id, l.createdAt, l.name, l.company ?? null, l.email ?? null, l.country ?? null, l.status, j(l.request), j(l.screening), j(l.matches)); },
+  setScreening: (id, screening, status, matches) => { q('UPDATE leads SET screening=?, status=?, matches=? WHERE id=?').run(j(screening), status, j(matches), id); },
   setEmail: (id, email) => { q('UPDATE leads SET email=? WHERE id=?').run(email, id); },
 };
 

@@ -87,6 +87,14 @@ MAIL_ALLOWED_DOMAINS=yourdomain.com,example.com    # optional: only send to thes
 ## Deploying
 [DEPLOY.md](DEPLOY.md): Docker Compose with automatic HTTPS (Caddy), health check, graceful shutdown, scheduled backups. Settings: `HOST` (default 127.0.0.1), `PORT`, `TRUST_PROXY` (number of reverse proxies in front, so lockouts use real client IPs), `COOKIE_SECURE=1`. `GET /healthz` returns `{"ok":true}` when the database responds. The Docker image itself has not been built in the environment this was written in.
 
+## Counterparty screening
+Every new lead is screened before it can become a deal. Result: **clear**, **needs review**, **screening error** or **list match**. Anything but clear holds the lead (no matches shown, no deal can be opened).
+- **Built in:** a restricted-country check, plus fuzzy name matching of the contact and company against a list you supply: `SANCTIONS_FILE=/path/list.csv` (one name per line, or a CSV with a `name` / `aliases` column, aliases separated by `;` or `|`). Use an export of the sanctions lists that apply to you (for example OFAC SDN, EU, UK) and refresh it on a schedule; the file is re-read when it changes. Matching ignores case, accents, punctuation, word order and company suffixes (Ltd, LLC, GmbH...). Same words = list match; one-typo-close = needs review.
+- **Your provider:** `SCREENING_WEBHOOK_URL` (+ optional `SCREENING_API_KEY`, `SCREENING_TIMEOUT_MS`) receives `POST {name, company, country}` and must answer `{"status":"clear"|"review"|"hit","reason":"..."}`. The worst of the built-in and provider results wins. A provider that is down, slow or answers anything else gives **screening error** (fail closed), and a broker can re-run screening once it is back.
+- **Human decisions:** admins can **Clear after review** a "needs review" or "screening error" lead, with a required note (10+ characters) that is stored with the lead and in the activity log. A **list match** cannot be cleared in the app; it must go to your compliance officer. A cleared lead is not silently re-screened.
+- Viewers see only the status, never matched names or reviewer notes.
+- **This is not a compliance programme.** It does not cover ownership structures, vessels/aircraft registries, adverse media, ongoing re-screening of existing customers, or the specific lists and jurisdictions that apply to your business. Treat it as a first gate and get compliance and legal advice before trading.
+
 ## Loading your real inventory
 Inventory page, **Import from CSV** (admins and brokers). Download the template, fill one row per aircraft, choose the file or paste it, then **Preview**. The preview lists every row as new, update or error with the line number and reason; **Import** appears only when there are no errors, and a file with any error writes nothing.
 - Columns: `model, type, year, hours, seats, rangeNm, location, listPrice, floor, maxDiscountPct, leaseMonthly, minLeaseMonthly, minTermMonths`, plus optional `id` (an existing id updates that aircraft; blank creates a new one). Header case, spaces and underscores are ignored; `$` and thousands separators in numbers are accepted. Up to 500 rows per file.
@@ -95,7 +103,7 @@ Inventory page, **Import from CSV** (admins and brokers). Download the template,
 - Fields are validated like the single-aircraft form (price ranges, floor <= list price, safe ids).
 
 ## Tests
-`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch. `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
+`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
 
 ## Input handling and privacy
 - All write endpoints validate types and ranges (ids, prices, floor <= list, discounts, offers, playbook rules, scenarios) and return 400 instead of failing deep inside; text fields are length-limited.
@@ -104,7 +112,7 @@ Inventory page, **Import from CSV** (admins and brokers). Download the template,
 - The activity log shows sign-in, user and two-factor events to admins only. Failed logins are recorded only for real accounts, so a password typed into the email box is never written to the log.
 
 ## Not production-ready yet
-- Inventory is mock data and screening is a country-list stub, not a real sanctions/KYC provider.
+- Screening is a first gate (see above), not a legal compliance programme. The built-in demo inventory is mock data.
 - No SSO or hardware keys, no password reset by email, no inbound email (buyer replies are not tracked).
 - Model calls were only tested against a mock server in this repo, not a live Ollama or Claude instance, and `finetune/train.py` was never run on a GPU.
 - Single-server SQLite.

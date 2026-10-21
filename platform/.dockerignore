@@ -6,4 +6,5 @@ finetune
 testlib.js
 *.md
 .env
+sanctions
 .git
