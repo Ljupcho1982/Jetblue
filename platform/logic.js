@@ -77,13 +77,16 @@
       return draft('escalate', null, `Thank you for your interest in the ${a.model}. Let me bring in our broker to discuss how we can find a workable structure.`, ['Offer far below limits or negotiation stalled after ' + round + ' rounds.', ...flags], 'Escalate to human broker.');
     }
     // Counter: move from list toward the limit by round, never below the limit.
-    const step = Math.min(1, R.stepBase + R.stepPerRound * round);
-    let counter = Math.max(limit, list - (list - limit) * step);
-    counter = Math.max(counter, offer);
-    counter = Math.round(counter / (lease ? 500 : 10000)) * (lease ? 500 : 10000);
-    counter = Math.max(counter, limit);
-    const concession = round >= 2 ? ' We can also offer a flexible inspection window.' : '';
     const termNote = flags.length ? ` We would need a minimum term of ${a.minTermMonths} months.` : '';
+    if (offer >= limit) { // the price is acceptable; only the term blocks acceptance, so keep the buyer's price
+      return draft('counter', offer, `Thank you for your offer of ${fmt(offer)}${unit} on the ${a.model} (${a.id}). The price works for us.${termNote} ${R.disclaimer}`, flags, 'Price within limits; term below the minimum. Review before sending.');
+    }
+    // Concede from the asking price toward the limit as rounds pass, rounded to a tidy figure, and never
+    // above the asking price, below the limit, or below what the buyer already offered.
+    const step = Math.min(1, R.stepBase + R.stepPerRound * round), grid = lease ? 500 : 10000;
+    let counter = Math.round(Math.max(limit, list - (list - limit) * step) / grid) * grid;
+    counter = Math.min(list, Math.max(counter, limit, offer));
+    const concession = round >= 2 ? ' We can also offer a flexible inspection window.' : '';
     return draft('counter', counter, `Thank you for your offer of ${fmt(offer)}${unit} on the ${a.model} (${a.id}). We cannot accept it, but we can propose ${fmt(counter)}${unit}.${concession}${termNote} ${R.disclaimer}`, flags, 'Counter inside limits. Review before sending.');
   }
 

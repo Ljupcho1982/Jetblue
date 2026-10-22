@@ -13,9 +13,9 @@ First visit asks you to create the admin account. Deploying for real: see [DEPLO
 ## How a deal works
 1. A lead comes in (Leads page). Demo screening runs, then matching against inventory.
 2. Open a deal for an aircraft. Enter the buyer's offer.
-3. The **rules engine** (`logic.js`) decides accept / counter / escalate and the price, inside limits set per aircraft (floor, max discount, minimum lease and term). The model cannot change that decision.
+3. The **rules engine** (`logic.js`) decides accept / counter / escalate and the price, inside limits set per aircraft (floor, max discount, minimum lease and term). The model cannot change that decision. Counters never go below the limit, above the asking price, or below what the buyer already offered; they only improve for the buyer from round to round; if only a lease term is too short, the buyer's price is kept and the minimum term is requested. These invariants are swept over thousands of offers in `test.js`.
 4. A draft reply is written (template, or an open-source/Claude model that only words the decision). Every reply is a **draft**.
-5. A broker approves, edits or rejects it. Approved text is optionally emailed to the buyer.
+5. A broker approves, edits or rejects it. If an edit introduces an amount other than the drafted price and the buyer's offer, quotes a figure below the aircraft's floor (or minimum lease rate), or adds binding wording, the broker must confirm explicitly before it is approved, and the confirmation is written to the activity log. Approved text is optionally emailed to the buyer.
 6. Accepts move the deal to LOI (a human step), stalled or far-too-low offers escalate to the broker.
 
 ## Pages
@@ -103,7 +103,7 @@ Inventory page, **Import from CSV** (admins and brokers). Download the template,
 - Fields are validated like the single-aircraft form (price ranges, floor <= list price, safe ids).
 
 ## Tests
-`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, request limiting, access log and HSTS, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
+`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), broker edit confirmation, hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, request limiting, access log and HSTS, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
 
 ## Input handling and privacy
 - All write endpoints validate types and ranges (ids, prices, floor <= list, discounts, offers, playbook rules, scenarios) and return 400 instead of failing deep inside; text fields are length-limited.

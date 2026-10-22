@@ -168,7 +168,16 @@ const pages = {
   dealsInit() {
     document.querySelectorAll('[data-deal]').forEach((el) => el.onclick = () => { selectedDeal = el.dataset.deal; render(); });
     const send = $('#sendOffer'); if (send) send.onclick = async () => { const offer = $('#offer').value; if (!offer) return; send.disabled = true; await call('POST', `deals/${selectedDeal}/offer`, { offer, termMonths: $('#term')?.value }); await render(); };
-    const ap = $('[data-approve]'); if (ap) ap.onclick = async () => { await call('POST', `deals/${selectedDeal}/messages/${ap.dataset.approve}/approve`, { text: $('#draftText').value }); await render(); };
+    const ap = $('[data-approve]'); if (ap) ap.onclick = async () => {
+      const url = `/api/deals/${selectedDeal}/messages/${ap.dataset.approve}/approve`, send = (extra) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: $('#draftText').value, ...extra }) });
+      ap.disabled = true; let r = await send({}), j = await r.json();
+      if (r.status === 409 && j.needsConfirm) { // an edit changed money or wording: make the broker say so explicitly
+        if (!confirm(`${j.error}\n\nSend it anyway?`)) { ap.disabled = false; return; }
+        r = await send({ confirmPriceChange: true }); j = await r.json();
+      }
+      if (!r.ok) { toast(j.error || 'Error'); ap.disabled = false; return; }
+      await render();
+    };
     document.querySelectorAll('[data-send]').forEach((b) => b.onclick = async () => { b.disabled = true; await call('POST', `deals/${selectedDeal}/messages/${b.dataset.send}/send`).catch(() => {}); await render(); });
     document.querySelectorAll('[data-addemail]').forEach((b) => b.onclick = async () => {
       const email = prompt('Buyer email address'); if (!email) return;

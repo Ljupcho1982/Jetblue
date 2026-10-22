@@ -113,6 +113,20 @@ async function deliver(deal, messageId, approver) {
   } catch (e) { store.deals.setDelivery(messageId, 'failed', e.message); store.activity.add(`Email failed on deal ${deal.id}`, approver.email); }
 }
 
+// Warnings for a broker-edited reply: amounts that differ from the drafted price and the buyer's offer, amounts below
+// the private floor, or binding wording. The broker may still send it, after confirming.
+function editWarnings(msg, text, a, mode) {
+  const offered = msg.facts && msg.facts.buyersOffer ? Logic.extractAmounts(msg.facts.buyersOffer).map((x) => x.value) : [];
+  const decided = [msg.price, ...offered].filter((n) => Number.isFinite(n));
+  const facts = a ? [a.year, a.seats, a.rangeNm, a.hours] : [];
+  const v = Logic.validateMessage(text, { allowed: [...decided, ...facts], secrets: [] }), out = [];
+  if (!v.ok) out.push(v.reason === 'binding language' ? 'The text contains binding wording (for example "guarantee").' : `The text states an amount (${(v.reason || '').replace('unapproved amount ', '')}) that is not the drafted price or the buyer's offer.`);
+  const floor = a ? (mode === 'lease' ? a.minLeaseMonthly : a.floor) : 0;
+  const low = Logic.extractAmounts(text).filter((t) => (t.currency || t.magnitude || t.value >= 10000) && t.value < floor && !facts.includes(t.value) && !offered.includes(t.value)); // quoting the buyer's own offer is fine
+  if (low.length) out.push(`It contains ${low[0].raw}, which is below this aircraft's ${mode === 'lease' ? 'minimum lease rate' : 'floor price'}.`);
+  return out;
+}
+
 async function api(req, url, ctx) {
   const user = ctx.user;
   const m = req.method, p = url.pathname.replace(/^\/api\//, '').split('/');
@@ -330,6 +344,11 @@ async function api(req, url, ctx) {
       if (msg.status !== 'draft') throw httpErr(409, 'Message is not a pending draft');
       if (b.text !== undefined && (typeof b.text !== 'string' || !b.text.trim() || b.text.length > 5000)) throw httpErr(400, 'text must be 1-5000 characters');
       const text = b.text || msg.text;
+      if (text.trim() !== msg.original.trim()) { // a broker edit that changes money or adds binding wording needs an explicit yes
+        const warn = editWarnings(msg, text, store.aircraft.get(d.aircraftId), d.mode);
+        if (warn.length && b.confirmPriceChange !== true) throw Object.assign(httpErr(409, warn.join(' ')), { needsConfirm: true });
+        if (warn.length) act(`Broker confirmed an edited amount on deal ${d.id}: ${warn.join(' ')}`.slice(0, 300));
+      }
       store.tx(() => {
         store.deals.approve(msg.id, text, user.email);
         if (msg.action === 'accept') store.deals.setStage(d.id, 'LOI'); else if (msg.action === 'escalate') store.deals.setStage(d.id, 'escalated');
@@ -457,7 +476,7 @@ const server = http.createServer(async (req, res) => {
     send(200, { 'content-type': TYPES[path.extname(f)] || 'application/octet-stream' }, fs.readFileSync(f));
   } catch (e) {
     if (!e.status) console.error(e);
-    send(e.status || 500, { 'content-type': 'application/json' }, JSON.stringify({ error: e.status ? e.message : 'Server error', ...(e.details ? { details: e.details } : {}) }));
+    send(e.status || 500, { 'content-type': 'application/json' }, JSON.stringify({ error: e.status ? e.message : 'Server error', ...(e.details ? { details: e.details } : {}), ...(e.needsConfirm ? { needsConfirm: true } : {}) }));
   }
 });
 
