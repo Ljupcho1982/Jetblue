@@ -37,12 +37,12 @@ function buildSystem(playbook, learned) {
     `Approved examples of our style:\n${ex}`;
 }
 
-async function wordDraft({ decision, aircraft, buyer, offer, mode, playbook, learned }) {
+async function wordDraft({ decision, aircraft, buyer, offer, mode, termMonths, playbook, learned }) {
   const allowed = [offer, decision.price, aircraft.year, aircraft.seats, aircraft.rangeNm, aircraft.hours].filter((n) => Number.isFinite(n) && n !== 0);
   const secrets = [aircraft.floor, aircraft.minLeaseMonthly, aircraft.listPrice * (1 - aircraft.maxDiscountPct / 100)];
   const facts = {
     decision: { action: decision.action, price: decision.price ? Logic.fmt(decision.price) : null, flags: decision.flags },
-    buyer: buyer.name, buyersOffer: Logic.fmt(offer), mode,
+    buyer: buyer.name, buyersOffer: Logic.fmt(offer), mode, ...(termMonths ? { requestedTermMonths: termMonths } : {}),
     aircraft: { id: aircraft.id, model: aircraft.model, year: aircraft.year, seats: aircraft.seats, rangeNm: aircraft.rangeNm, location: aircraft.location },
     mustInclude: playbook.rules.disclaimer,
   };

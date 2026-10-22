@@ -68,9 +68,11 @@ const pages = {
       ${can('users.manage') ? '<li><a href="#/users">Invite your brokers</a> and set up two-factor sign-in under <a href="#/account">Account</a>.</li>' : ''}</ol></div>` : ''}
     <div class="card"><h2>Needs attention ${todo.length ? `<span class="tag warn">${todo.length}</span>` : ''}</h2>
       ${todo.length ? `<table>${todo.map((t, i) => `<tr><td style="width:210px"><span class="tag ${t.tone}">${esc(t.kind)}</span></td><td>${esc(t.text)}</td><td style="width:90px"><button class="small secondary" data-goto="${i}">Open</button></td></tr>`).join('')}</table>` : '<p class="muted">Nothing needs your attention right now.</p>'}</div>
+    ${can('deals.write') ? '<div class="card"><h2>Pilot feedback</h2><p class="muted small">Something wrong, confusing or missing? Tell us. Flag a specific draft with the button on the Deals page.</p><button class="secondary" id="sendFeedback">Send feedback</button></div>' : ''}
     <div class="card"><h2>Recent activity</h2>${S.activity.length ? '<table>' + S.activity.slice(0, 12).map((a) => `<tr><td class="muted small" style="width:170px">${new Date(a.at).toLocaleString()}</td><td>${esc(a.msg)}</td><td class="muted small">${esc(a.who || '')}</td></tr>`).join('') + '</table>' : '<p class="muted">No activity yet.</p>'}</div>`;
   },
   dashboardInit() {
+    if ($('#sendFeedback')) $('#sendFeedback').onclick = async () => { const comment = prompt('Your feedback'); if (comment) { await call('POST', 'feedback', { kind: 'other', comment }); toast('Thanks, recorded'); } };
     document.querySelectorAll('[data-goto]').forEach((b) => b.onclick = () => { const t = TODO[+b.dataset.goto]; if (t.deal) { selectedDeal = t.deal; location.hash = '#/deals'; } else location.hash = '#/leads'; });
   },
 
@@ -167,7 +169,7 @@ const pages = {
         <div>${d.messages.filter((m) => m.status !== 'rejected').map((m) => m.role === 'buyer' ? `<div class="msg buyer">${esc(m.text)}</div>` :
           m.status === 'draft' ? `<div class="msg assistant draft"><b>Draft (${esc(m.action)})</b> <span class="tag">${esc(m.source)}</span>
             ${m.flags.map((f) => `<div class="warn small">⚠ ${esc(f)}</div>`).join('')}<textarea id="draftText" rows="5">${esc(m.text)}</textarea><div class="muted small">${esc(m.note)}</div>
-            <button data-approve="${esc(m.id)}">Approve and send</button><button class="secondary" data-reject="${esc(m.id)}">Reject</button></div>`
+            <button data-approve="${esc(m.id)}">Approve and send</button><button class="secondary" data-reject="${esc(m.id)}">Reject</button><button class="secondary" data-flag="${esc(m.id)}" title="Tell us what is wrong with this draft">Flag a problem</button></div>`
           : `<div class="msg assistant">${esc(m.text)}${deliveryHtml(m)}</div>`).join('')}</div>
         ${['LOI', 'escalated'].includes(d.stage) ? `<p class="${d.stage === 'LOI' ? 'ok' : 'bad'}">${d.stage === 'LOI' ? 'Ready for letter of intent (human step).' : 'Escalated to the human broker.'}</p>` : ''}
         ${!pending && d.stage === 'negotiating' && can('deals.write') ? `<div class="grid"><label>Buyer's offer (${d.mode === 'lease' ? 'per month' : 'USD'})<input id="offer" type="number"></label>${d.mode === 'lease' ? '<label>Term (months)<input id="term" type="number" value="36"></label>' : ''}</div><button id="sendOffer">Submit buyer's offer</button>` : ''}</div>`;
@@ -193,10 +195,15 @@ const pages = {
       const d = S.deals.find((x) => x.id === selectedDeal);
       await call('PUT', 'leads/' + d.leadId, { email }).catch(() => {}); await call('POST', `deals/${selectedDeal}/messages/${b.dataset.addemail}/send`).catch(() => {}); await render();
     });
+    const fl = $('[data-flag]'); if (fl) fl.onclick = async () => {
+      const comment = prompt('What is wrong with this draft or decision? (what you expected instead helps most)'); if (!comment) return;
+      await call('POST', 'feedback', { kind: 'draft', dealId: selectedDeal, messageId: fl.dataset.flag, comment }); toast('Thanks, recorded');
+    };
     const rj = $('[data-reject]'); if (rj) rj.onclick = async () => { await call('POST', `deals/${selectedDeal}/messages/${rj.dataset.reject}/reject`); await render(); };
   },
 
-  training() {
+  async training() {
+    const FB = await call('GET', 'feedback'), openFb = FB.filter((f) => f.status === 'open');
     const p = S.playbook, r = p.rules;
     return `<h1>Training</h1>
     <p class="muted">The model is trained through its playbook: instructions, tone, negotiation rules and approved examples. Broker edits to drafts are saved as new examples automatically. Run the test scenarios after any change.</p>
@@ -218,11 +225,22 @@ const pages = {
       <h3>Add scenario</h3><form id="scForm" class="grid"><label>Name<input name="name" required></label><label>Aircraft<select name="aircraftId">${S.inventory.map((a) => `<option>${esc(a.id)}</option>`).join('')}</select></label>
         <label>Mode<select name="mode"><option>buy</option><option>lease</option></select></label><label>Offer<input name="offer" type="number" required></label><label>Round<input name="round" type="number" value="1"></label>
         <label>Term (lease)<input name="termMonths" type="number"></label><label>Expect<select name="expect"><option>accept</option><option>counter</option><option>escalate</option></select></label><div><button>Add</button></div></form></div>
+    <div class="card"><h2>Pilot feedback ${openFb.length ? `<span class="tag warn">${openFb.length} open</span>` : ''}</h2>
+      <p class="muted small">Problems flagged by brokers. For a flagged draft, <b>Make test</b> records what the correct decision should have been as a permanent test scenario (it will fail until the rules or playbook are fixed).</p>
+      ${FB.length ? `<table><tr><th>When / who</th><th>Feedback</th><th></th></tr>${FB.map((f) => `<tr><td class="small muted">${new Date(f.createdAt).toLocaleString()}<br>${esc(f.userEmail)}</td>
+        <td>${esc(f.comment)}${f.snapshot ? `<div class="small muted">${esc(f.snapshot.aircraftId)} ${esc(f.snapshot.mode)}, buyer offered ${f.snapshot.offer != null ? fmt(f.snapshot.offer) : '?'}${f.snapshot.termMonths ? ' / ' + esc(f.snapshot.termMonths) + ' mo' : ''}, round ${esc(f.snapshot.round)} → <b>${esc(f.snapshot.action)}</b>${f.snapshot.price ? ' ' + fmt(f.snapshot.price) : ''}</div><div class="small" style="white-space:pre-wrap">${esc(f.snapshot.text)}</div>` : ''}
+          ${f.status === 'resolved' ? `<div class="small ok">Resolved by ${esc(f.resolvedBy)}: ${esc(f.resolution || '')}</div>` : ''}</td>
+        <td>${f.status === 'open' ? `${f.snapshot ? `<button class="small secondary" data-mktest="${esc(f.id)}">Make test</button> ` : ''}<button class="small secondary" data-fbresolve="${esc(f.id)}">Resolve</button>` : ''}</td></tr>`).join('')}</table>` : '<p class="muted small">No feedback yet.</p>'}</div>
     <div class="card"><h2>Fine-tune an open-source model</h2><p class="muted small">Download broker-approved replies as chat-format JSONL, ready for LoRA fine-tuning (for example with Axolotl, Unsloth or llama-factory). Edited replies are the most valuable rows. Aim for hundreds of reviewed examples before fine-tuning.</p><a href="/api/export"><button class="secondary">Download finetune.jsonl</button></a></div>
     ${S.demo ? '<div class="card"><h2>Reset</h2><p class="muted small">Demo mode only: wipes aircraft, leads, deals and learned examples back to the demo data.</p><button class="danger" id="reset">Reset all demo data</button></div>' : ''}`;
   },
   trainingInit() {
     const put = (b) => call('PUT', 'playbook', b).then(render);
+    document.querySelectorAll('[data-mktest]').forEach((b) => b.onclick = async () => {
+      const expect = (prompt('What SHOULD the decision have been? Type accept, counter or escalate') || '').trim().toLowerCase(); if (!expect) return;
+      await call('POST', `feedback/${b.dataset.mktest}/scenario`, { expect }); toast('Added as a test scenario'); render();
+    });
+    document.querySelectorAll('[data-fbresolve]').forEach((b) => b.onclick = async () => { const resolution = prompt('How was this resolved? (optional)'); if (resolution === null) return; await call('POST', `feedback/${b.dataset.fbresolve}/resolve`, { resolution }); render(); });
     $('#pbForm').onsubmit = (e) => { e.preventDefault(); const f = form(e.target); put({ company: f.company, broker: f.broker, tone: f.tone, systemPrompt: f.systemPrompt, rules: { stepBase: f.stepBase, stepPerRound: f.stepPerRound, escalateBelowPct: f.escalateBelowPct, maxRounds: f.maxRounds, disclaimer: f.disclaimer } }).then(() => toast('Playbook saved')); };
     $('#exForm').onsubmit = (e) => { e.preventDefault(); put({ examples: [...S.playbook.examples, form(e.target)] }); };
     document.querySelectorAll('[data-delex]').forEach((b) => b.onclick = () => put({ examples: S.playbook.examples.filter((_, i) => i !== +b.dataset.delex) }));

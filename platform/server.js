@@ -340,7 +340,7 @@ async function api(req, url, ctx) {
       const offer = numIn(b.offer, 1, 1e10, 'offer'), termMonths = optNum(b.termMonths, 1, 600, 'termMonths');
       const round = d.round + 1, playbook = store.playbook.get();
       const decision = Logic.negotiate({ aircraft: a, mode: d.mode, offer, round, termMonths, rules: playbook.rules });
-      const w = await llm.wordDraft({ decision, aircraft: a, buyer: { name: d.buyer }, offer, mode: d.mode, playbook, learned: store.learned.list() });
+      const w = await llm.wordDraft({ decision, aircraft: a, buyer: { name: d.buyer }, offer, mode: d.mode, termMonths, playbook, learned: store.learned.list() });
       try {
         store.tx(() => { // the model call above can take seconds; only commit if the deal did not move meanwhile
           if (!store.deals.advanceRound(d.id, d.round)) throw httpErr(409, 'Deal changed while drafting, try again');
@@ -409,6 +409,40 @@ async function api(req, url, ctx) {
     if (p[1] === 'promote' && m === 'POST') { // turn a learned example into a permanent one
       need('playbook.write');
       return store.tx(() => { const pb = store.playbook.get(), ex = store.learned.takeAt(+b.index); if (ex) { pb.examples.push(ex); store.playbook.set(pb); } return pb; });
+    }
+  }
+
+  if (p[0] === 'feedback') { // pilot feedback: flag a bad draft or send a general note; admins turn flagged drafts into test scenarios
+    if (m === 'POST' && !p[1]) {
+      need('deals.write');
+      const comment = str(b.comment, 1000); if (comment.length < 5) throw httpErr(400, 'Please describe the problem (at least 5 characters)');
+      if (!['draft', 'other'].includes(b.kind)) throw httpErr(400, 'kind must be draft or other');
+      const f = { id: id(), userEmail: user.email, kind: b.kind, comment };
+      if (b.kind === 'draft') {
+        const d = store.deals.get(String(b.dealId)), msg = d && store.deals.message(d.id, String(b.messageId));
+        if (!msg || msg.role !== 'assistant') throw httpErr(404, 'draft not found');
+        const offer = msg.facts && msg.facts.buyersOffer ? Logic.extractAmounts(msg.facts.buyersOffer)[0]?.value : undefined;
+        // the round is the buyer's offers so far minus rejected drafts, because rejecting a draft rewinds the round
+        Object.assign(f, { dealId: d.id, messageId: msg.id, snapshot: { aircraftId: d.aircraftId, mode: d.mode, round: Math.max(1, d.messages.filter((x) => x.role === 'buyer' && x.at <= msg.at).length - d.messages.filter((x) => x.role === 'assistant' && x.status === 'rejected' && x.at < msg.at).length), offer, termMonths: msg.facts && msg.facts.requestedTermMonths, action: msg.action, price: msg.price, flags: msg.flags, source: msg.source, text: msg.text, status: msg.status } });
+      }
+      store.tx(() => { store.feedback.insert(f); act(`Feedback ${f.id} (${f.kind})`); });
+      return { ok: true, id: f.id };
+    }
+    need('playbook.write');
+    if (m === 'GET' && !p[1]) return store.feedback.list();
+    const f = store.feedback.get(p[1]); if (!f) throw httpErr(404, 'feedback not found');
+    if (p[2] === 'resolve' && m === 'POST') {
+      if (f.status !== 'open') throw httpErr(409, 'Already resolved');
+      store.tx(() => { store.feedback.resolve(f.id, user.email, str(b.resolution, 500) || 'Resolved'); act('Feedback resolved: ' + f.id); }); return { ok: true };
+    }
+    if (p[2] === 'scenario' && m === 'POST') {
+      if (f.status !== 'open') throw httpErr(409, 'Already resolved');
+      const s = f.snapshot; if (!s || !Number.isFinite(s.offer)) throw httpErr(400, 'Only flagged drafts can become test scenarios');
+      if (!['accept', 'counter', 'escalate'].includes(b.expect)) throw httpErr(400, 'expect must be accept, counter or escalate');
+      const pb = store.playbook.get(); if (pb.scenarios.length >= 100) throw httpErr(400, 'Too many scenarios (100)');
+      pb.scenarios.push({ name: ('Feedback: ' + f.comment).slice(0, 100), aircraftId: s.aircraftId, mode: s.mode, offer: s.offer, round: s.round, ...(s.termMonths ? { termMonths: s.termMonths } : {}), expect: b.expect });
+      store.tx(() => { store.playbook.set(pb); store.feedback.resolve(f.id, user.email, 'Added as test scenario (expect ' + b.expect + ')'); act('Feedback ' + f.id + ' became a test scenario'); });
+      return { ok: true, scenarios: pb.scenarios.length };
     }
   }
 

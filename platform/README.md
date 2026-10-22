@@ -23,7 +23,7 @@ First visit asks you to create the admin account. Deploying for real: see [DEPLO
 - **Inventory:** aircraft, including private floor price and limits.
 - **Leads:** intake, screening, matching, open a deal.
 - **Deals:** negotiation thread, drafts, approval, email status and retry.
-- **Training** (admin): playbook, style examples, examples learned from broker edits, test scenarios, fine-tuning export.
+- **Training** (admin): playbook, style examples, examples learned from broker edits, pilot feedback, test scenarios, fine-tuning export.
 - **Users** (admin): add users, change roles, disable, reset password or two-factor.
 - **Account:** change your password, set up two-factor.
 
@@ -95,6 +95,12 @@ Every new lead is screened before it can become a deal. Result: **clear**, **nee
 - Viewers see only the status, never matched names or reviewer notes.
 - **This is not a compliance programme.** It does not cover ownership structures, vessels/aircraft registries, adverse media, ongoing re-screening of existing customers, or the specific lists and jurisdictions that apply to your business. Treat it as a first gate and get compliance and legal advice before trading.
 
+## Pilot feedback loop
+Built for the first weeks of real use. Brokers and admins can **Flag a problem** on any draft (Deals page) and **Send feedback** (Dashboard). Admins see everything on the Training page under **Pilot feedback**.
+- A flagged draft stores what the system actually did: aircraft, mode, the buyer's offer, requested lease term, round, decision, price, flags, text and whether a model or template wrote it. The server builds this snapshot, so it cannot be faked from the browser.
+- **Make test** (admin) turns a flagged draft into a permanent test scenario using the decision you say it *should* have been (accept, counter or escalate). It fails on the Training page's test run until the rules or playbook are fixed, so each real mistake is fixed once and stays fixed. **Resolve** closes an item with a note.
+- Erasing a lead also deletes feedback about its deals, since flagged drafts can quote reply text.
+
 ## Personal data (export and erasure)
 The platform stores buyers' names, companies and emails. For access and erasure requests, admins get **Export** and **Erase** on each lead (Leads page).
 - **Export** downloads everything held about the person (lead, deals, every message) as JSON, and is written to the activity log.
@@ -110,7 +116,7 @@ Inventory page, **Import from CSV** (admins and brokers). Download the template,
 - Fields are validated like the single-aircraft form (price ranges, floor <= list price, safe ids).
 
 ## Tests
-`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), broker edit confirmation, personal-data export and erasure, hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, request limiting, access log and HSTS, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
+`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), broker edit confirmation, personal-data export and erasure, pilot feedback, hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, request limiting, access log and HSTS, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
 
 ## Input handling and privacy
 - All write endpoints validate types and ranges (ids, prices, floor <= list, discounts, offers, playbook rules, scenarios) and return 400 instead of failing deep inside; text fields are length-limited.

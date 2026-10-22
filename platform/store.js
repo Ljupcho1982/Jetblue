@@ -53,6 +53,13 @@ const MIGRATIONS = [`
   ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE users ADD COLUMN recovery_codes TEXT;
   ALTER TABLE users ADD COLUMN last_totp_step INTEGER NOT NULL DEFAULT 0;
+`, `
+  CREATE TABLE feedback (
+    id TEXT PRIMARY KEY, created_at TEXT NOT NULL, user_email TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('draft','other')), deal_id TEXT, message_id TEXT,
+    comment TEXT NOT NULL, snapshot TEXT, status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
+    resolved_by TEXT, resolved_at TEXT, resolution TEXT);
+  CREATE INDEX feedback_status ON feedback(status, created_at);
 `];
 function migrate() {
   let v = db.prepare('PRAGMA user_version').get().user_version;
@@ -150,6 +157,7 @@ const leads = {
     const l = leadRow(q('SELECT * FROM leads WHERE id=?').get(id)); if (!l) return null;
     const dealIds = q('SELECT id FROM deals WHERE lead_id=?').all(id).map((d) => d.id);
     const messages = dealIds.reduce((n, d) => n + q('SELECT COUNT(*) n FROM messages WHERE deal_id=?').get(d).n, 0);
+    for (const d of dealIds) q('DELETE FROM feedback WHERE deal_id=?').run(d); // flagged drafts can carry reply text
     q('DELETE FROM deals WHERE lead_id=?').run(id); q('DELETE FROM leads WHERE id=?').run(id);
     let scrubbed = 0;
     for (const term of [l.name, l.email, l.company].filter((t) => t && t.trim().length >= 3)) {
@@ -204,6 +212,13 @@ const learned = {
 const activityLog = {
   add: (msg, who) => { q('INSERT INTO activity (at,msg,who) VALUES (?,?,?)').run(now(), msg, who ?? null); q('DELETE FROM activity WHERE id NOT IN (SELECT id FROM activity ORDER BY id DESC LIMIT 200)').run(); },
   recent: (n = 100) => q('SELECT at, msg, who FROM activity ORDER BY id DESC LIMIT ?').all(n).map(plain),
+};
+const feedback = {
+  insert: (f) => { q('INSERT INTO feedback (id,created_at,user_email,kind,deal_id,message_id,comment,snapshot) VALUES (?,?,?,?,?,?,?,?)').run(f.id, now(), f.userEmail, f.kind, f.dealId ?? null, f.messageId ?? null, f.comment, f.snapshot ? j(f.snapshot) : null); },
+  list: () => q("SELECT * FROM feedback ORDER BY (status='open') DESC, created_at DESC, rowid DESC LIMIT 200").all().map((r) => ({ id: r.id, createdAt: r.created_at, userEmail: r.user_email, kind: r.kind, dealId: r.deal_id, messageId: r.message_id, comment: r.comment, snapshot: unj(r.snapshot), status: r.status, resolvedBy: r.resolved_by, resolvedAt: r.resolved_at, resolution: r.resolution })),
+  get: (id) => feedback.list().find((f) => f.id === id),
+  resolve: (id, by, resolution) => q("UPDATE feedback SET status='resolved', resolved_by=?, resolved_at=?, resolution=? WHERE id=? AND status='open'").run(by, now(), resolution, id).changes === 1,
+  countOpen: () => q("SELECT COUNT(*) n FROM feedback WHERE status='open'").get().n,
 };
 const playbook = {
   get: () => unj(q("SELECT value FROM settings WHERE key='playbook'").get().value),
@@ -268,4 +283,4 @@ function backup(dest) { if (fs.existsSync(dest)) throw new Error(dest + ' alread
 migrate();
 seed();
 
-module.exports = { db, tx, users, sessions, aircraft, leads, deals, learned, activity: activityLog, playbook, defaultPlaybook, reset, importLegacy, backup, FILE };
+module.exports = { db, tx, users, sessions, aircraft, leads, deals, learned, feedback, activity: activityLog, playbook, defaultPlaybook, reset, importLegacy, backup, FILE };
