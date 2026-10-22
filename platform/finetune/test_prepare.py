@@ -26,16 +26,22 @@ class PrepareTest(unittest.TestCase):
             row(8000000, 9040000, "Our floor is $8,600,000."),                       # leaks floor
             row(8000000, 9040000, "How about $8,700,000?"),                          # amount not in facts
             row(8000000, 9040000, "This is a legally binding offer at $9,040,000."),  # binding
+            row(8000000, 9040000, "Our floor is 8.6 million."),                      # leak, written differently
+            row(8000000, 9040000, "We could do 8.6M, say."),                          # leak, short form
+            row(8000000, 9040000, "I can offer eight point six million."),             # spelled out
+            row(8000000, 9040000, "We propose 9.04 million for the ATR 72-500 (TP-01)."),  # fine, so counted in good below
             good[0],                                                                  # duplicate
             {"messages": [{"role": "user", "content": "x"}]},                         # schema
         ]
         p, out = self.run_prepare(good + bad)
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertIn("clean rows: 12", p.stdout)
+        self.assertIn("clean rows: 13", p.stdout)
         kept = (out / "train.jsonl").read_text() + (out / "val.jsonl").read_text()
         self.assertNotIn("8,600,000", kept)
+        self.assertNotIn("8.6", kept)
+        self.assertIn("9.04 million", kept)
         self.assertEqual(len((out / "val.jsonl").read_text().splitlines()), 1)
-        self.assertEqual(len((out / "train.jsonl").read_text().splitlines()), 11)
+        self.assertEqual(len((out / "train.jsonl").read_text().splitlines()), 12)
 
     def test_too_few_rows_fails(self):
         p, _ = self.run_prepare([row(8000000, 9040000, "We propose $9,040,000.")], min_rows=50)

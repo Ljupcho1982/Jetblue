@@ -32,7 +32,7 @@ The model is not fine-tuned by default. Behaviour is controlled by:
 1. **Rules engine** decides the action and price. The model only chooses the wording.
 2. **Playbook** (Training page): instructions, tone, negotiation rules (concession per round, escalation threshold, max rounds, required disclaimer) and style examples.
 3. **Learning loop:** when a broker edits a draft before approving, the edited text is saved as an example and used in later prompts. Promote good ones to permanent examples.
-4. **Guardrail** (`validateMessage`): model text is rejected, and the template used instead, if it mentions any dollar amount other than the decided price and the buyer's offer, leaks a private limit, or uses binding language ("guarantee", "legally binding").
+4. **Guardrail** (`validateMessage`): model text is rejected, and the template used instead, if it states any amount other than the decided price, the buyer's offer or the aircraft's own year/seats/range/hours, leaks a private limit, or uses binding language ("guarantee", "legally binding"). Amounts are read in any written form (`$9,040,000`, `9.04 million`, `9.04M`, `USD 9 040 000`, `9,04 million`), and spelled-out amounts ("nine million") are rejected because they cannot be checked. The training-data filter (`finetune/prepare_data.py`) applies the same rules. This is a pattern check, not a guarantee: a determined paraphrase could still slip through, which is why a broker approves every message.
 5. **Test scenarios** (Training page): check decisions, that prices never fall below the floor, and that no private limit appears in a message. Run them after every playbook change.
 6. **Real fine-tuning** (open-source models): Training page, "Download finetune.jsonl", then follow `finetune/README.md`.
 

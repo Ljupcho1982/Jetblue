@@ -38,7 +38,7 @@ function buildSystem(playbook, learned) {
 }
 
 async function wordDraft({ decision, aircraft, buyer, offer, mode, playbook, learned }) {
-  const allowed = [offer, decision.price].filter(Boolean);
+  const allowed = [offer, decision.price, aircraft.year, aircraft.seats, aircraft.rangeNm, aircraft.hours].filter((n) => Number.isFinite(n) && n !== 0);
   const secrets = [aircraft.floor, aircraft.minLeaseMonthly, aircraft.listPrice * (1 - aircraft.maxDiscountPct / 100)];
   const facts = {
     decision: { action: decision.action, price: decision.price ? Logic.fmt(decision.price) : null, flags: decision.flags },

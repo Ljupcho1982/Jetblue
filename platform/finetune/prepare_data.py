@@ -13,7 +13,13 @@ import sys
 from pathlib import Path
 
 BINDING = re.compile(r"guarantee|legally binding|we accept your offer and", re.I)
-MONEY = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?")
+# Same reading of amounts as the platform's guardrail (logic.js): "$9,040,000", "9.04 million", "9.04M", "USD 9 040 000".
+MULT = {"k": 1e3, "thousand": 1e3, "m": 1e6, "mm": 1e6, "million": 1e6, "b": 1e9, "bn": 1e9, "billion": 1e9}
+AMOUNT = re.compile(
+    r"(\$|€|£|¥|\b(?:usd|eur|gbp|chf)\b)?\s?(\d{1,3}(?:[,   ]\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)"
+    r"(?:\s?(thousand|million|billion)\b|(k|mm|bn|m|b)(?![a-z0-9]))?(?:\s?(?:usd|eur|gbp|chf|dollars?|euros?)\b)?", re.I)
+SPELLED = re.compile(
+    r"\b(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a|half a)[\s-]+(?:\w+[\s-]+){0,4}?(?:thousand|million|billion)|(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+hundred)\b", re.I)
 
 
 def private_numbers(db_path):
@@ -30,7 +36,21 @@ def private_numbers(db_path):
 
 
 def amounts(text):
-    return {round(float(m.replace("$", "").replace(",", "").strip())) for m in MONEY.findall(text)}
+    """Every amount in text as (value, is_relevant). Years, seats and small plain numbers are not relevant."""
+    out = []
+    for m in AMOUNT.finditer(text):
+        raw, cur, num, word, suffix = m.group(0), m.group(1), m.group(2), m.group(3), m.group(4)
+        mag = (word or suffix or "").lower()
+        digits = re.sub(r"[   ]", "", num)
+        digits = digits.replace(",", "") if re.fullmatch(r"\d{1,3}(,\d{3})+(\.\d+)?", digits) else digits.replace(",", ".")
+        value = float(digits) * MULT.get(mag, 1)
+        currency = bool(cur) or bool(re.search(r"(usd|eur|gbp|chf|dollars?|euros?)\s*$", raw, re.I))
+        out.append((value, currency or bool(mag) or value >= 10000, raw.strip()))
+    return out
+
+
+def close(a, b, rel):
+    return abs(a - b) <= max(1e-9, abs(b) * rel)
 
 
 def check(row, secrets):
@@ -44,16 +64,16 @@ def check(row, secrets):
         facts = json.loads(msgs[1]["content"])
     except (ValueError, KeyError):
         return "user turn is not JSON facts"
-    got = amounts(reply)
-    if got & secrets:
-        return "leaks a private limit"
-    allowed = set()
-    d = facts.get("decision", {})
-    for s in (d.get("price"), facts.get("buyersOffer")):
-        if s:
-            allowed |= amounts(s)
-    if got - allowed:
-        return "amount not in facts: %s" % sorted(got - allowed)
+    if SPELLED.search(reply):
+        return "spelled-out amount"
+    allowed = [v for s in (facts.get("decision", {}).get("price"), facts.get("buyersOffer")) if s for v, _, _ in amounts(s)]
+    ac = facts.get("aircraft", {})
+    allowed += [ac[k] for k in ("year", "seats", "rangeNm") if isinstance(ac.get(k), (int, float))]
+    for value, relevant, raw in amounts(reply):
+        if any(close(value, s, 0.005) for s in secrets):
+            return "leaks a private limit"
+        if relevant and not any(close(value, a, 1e-6) for a in allowed):
+            return "amount not in facts: %s" % raw
     if BINDING.search(reply):
         return "binding language"
     return None

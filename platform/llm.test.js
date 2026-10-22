@@ -25,6 +25,10 @@ mock.listen(0, '127.0.0.1', () => {
       // leaking output is rejected
       [d, m] = await draftFor(8000000, 'Our floor is $8,600,000, how about $8,700,000?');
       assert.ok(m.source.startsWith('template (model output rejected'), m.source); assert.ok(m.text.includes('$9,040,000'));
+      // the same leak written other ways is rejected end to end, not just the "$8,600,000" form
+      for (const sneaky of ['We could stretch to 8.6 million.', 'Lowest is 8.6M.', 'We can offer eight point six million.']) {
+        const [, mm] = await draftFor(8000000, sneaky); assert.ok(mm.source.startsWith('template (model output rejected'), sneaky + ' -> ' + mm.source); assert.ok(!mm.text.includes('8.6'));
+      }
       // approved message appears in fine-tune export
       await call('POST', `deals/${d.id}/messages/${m.id}/approve`, {});
       const jsonl = (await call('GET', 'export')).trim().split('\n').map(JSON.parse);

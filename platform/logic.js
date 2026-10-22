@@ -91,18 +91,39 @@
     return { action, price, message, flags, internalNote: note, status: 'DRAFT' };
   }
 
-  // Guardrail for model-written text: only the decided price (and the buyer's own offer) may
-  // appear as dollar amounts, and internal limits must never leak.
+  // ---- Guardrail for model-written text ----
+  // Reads amounts the way a person would: "$9,040,000", "9.04 million", "9.04M", "USD 9 040 000", "9,04 million".
+  // Spelled-out amounts ("nine million") are rejected outright because they cannot be checked reliably.
+  const MULT = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, million: 1e6, b: 1e9, bn: 1e9, billion: 1e9 };
+  const AMOUNT_RE = /(\$|€|£|¥|\b(?:usd|eur|gbp|chf)\b)?\s?(\d{1,3}(?:[,   ]\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)(?:\s?(thousand|million|billion)\b|(k|mm|bn|m|b)(?![a-z0-9]))?(?:\s?(?:usd|eur|gbp|chf|dollars?|euros?)\b)?/gi;
+  const SPELLED_RE = /\b(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a|half a)[\s-]+(?:\w+[\s-]+){0,4}?(?:thousand|million|billion)|(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+hundred)\b/i;
+
+  function extractAmounts(text) {
+    const out = [];
+    for (const m of text.matchAll(AMOUNT_RE)) {
+      const [raw, cur, num, word, suffix] = m, mag = (word || suffix || '').toLowerCase();
+      let digits = num.replace(/[   ]/g, '');
+      digits = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(digits) ? digits.replace(/,/g, '') : digits.replace(',', '.');
+      const value = Number(digits) * (MULT[mag] || 1);
+      const currency = !!cur || /(usd|eur|gbp|chf|dollars?|euros?)\s*$/i.test(raw);
+      if (Number.isFinite(value)) out.push({ raw: raw.trim(), value, currency, magnitude: !!mag });
+    }
+    return out;
+  }
+  const close = (a, b, rel) => Math.abs(a - b) <= Math.max(1e-9, Math.abs(b) * rel);
+
+  // allowed: numbers the message may state (decided price, buyer's offer, and facts such as year/seats/range/hours).
+  // secrets: private limits that must never appear in any form.
   function validateMessage(text, { allowed = [], secrets = [] }) {
-    const nums = (text.match(/\$?\d[\d,]*(\.\d+)?\s*(k|m|million)?/gi) || []).map((t) => t.trim());
-    const flat = text.replace(/,/g, '');
-    for (const sec of secrets) if (sec && flat.includes(String(Math.round(sec)))) return { ok: false, reason: 'leaks an internal limit' };
-    const allowedFlat = allowed.map((n) => String(Math.round(n)));
-    const dollars = (flat.match(/\$\s?\d+(\.\d+)?\s*(million|m|k)?|\$?\d{5,}/gi) || []).map((x) => x.replace(/[$\s]/g, '').toLowerCase());
-    for (const d of dollars) if (!allowedFlat.includes(d)) return { ok: false, reason: 'unapproved amount ' + d };
+    if (SPELLED_RE.test(text)) return { ok: false, reason: 'spelled-out amount' };
+    for (const t of extractAmounts(text)) {
+      for (const sec of secrets) if (sec && close(t.value, sec, 0.005)) return { ok: false, reason: 'leaks an internal limit' };
+      const relevant = t.currency || t.magnitude || t.value >= 10000; // years, seats, "36 months" and similar stay free
+      if (relevant && !allowed.some((n) => close(t.value, n, 1e-6))) return { ok: false, reason: 'unapproved amount ' + t.raw };
+    }
     if (/guarantee|legally binding|we accept your offer and/i.test(text)) return { ok: false, reason: 'binding language' };
     return { ok: true };
   }
 
-  return { INVENTORY, DEFAULT_RULES, screen, matchAircraft, negotiate, validateMessage, fmt };
+  return { INVENTORY, DEFAULT_RULES, screen, matchAircraft, negotiate, validateMessage, extractAmounts, fmt };
 });

@@ -30,4 +30,14 @@ assert.ok(L.validateMessage('We can propose $9,040,000 for the ATR.', ok).ok);
 assert.ok(!L.validateMessage('Our floor is $8,600,000.', ok).ok);
 assert.ok(!L.validateMessage('How about $8,700,000?', ok).ok);
 assert.ok(!L.validateMessage('This is a legally binding offer at $9,040,000.', ok).ok);
+
+// Guardrail: private limits must not leak in ANY written form; legitimate wording must still pass
+const lim = { allowed: [8000000, 9040000, 2008, 70, 825], secrets: [8600000] };
+for (const leak of ['Our floor is 8.6 million.', 'We could go to 8.6M.', 'USD 8,600,000 works.', 'EUR 8.6m is the lowest.', 'We can do eight point six million.', 'Offer 8 600 000 and we agree.',
+  'Our best is 8,6 million.', '8.6 mio is fine.'.replace('mio', 'million'), 'How about $8.7 million?', 'Around nine million dollars.', 'About half a million less.', 'It would be $500 cheaper.', 'We have 31,000 hours on the airframe.'])
+  assert.equal(L.validateMessage(leak, lim).ok, false, 'guardrail missed: ' + leak);
+for (const fine of ['We can propose $9,040,000 for the ATR 72-500 (TP-01).', 'We can propose 9.04 million.', 'We can propose $9.04M, thanks for $8,000,000.', 'USD 9 040 000 all in.',
+  'Built in 2008 with 70 seats, range 825 nm, 36 months minimum, 5% fee.', 'Call us on 14 March; ref TP-01, 2026-10-22.'])
+  assert.equal(L.validateMessage(fine, lim).ok, true, 'guardrail wrongly rejected: ' + fine);
+assert.deepEqual(L.extractAmounts('$9.04M and 1,971 nm').map((a) => a.value), [9040000, 1971]);
 console.log('logic tests passed');
