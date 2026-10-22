@@ -8,7 +8,7 @@ npm start                              # http://127.0.0.1:3000, rule-based templ
 LLM_PROVIDER=ollama npm start          # wording by an open-source model via Ollama
 npm test                               # all test suites
 ```
-First visit asks you to create the admin account. Deploying for real: see [DEPLOY.md](DEPLOY.md). Fine-tuning a model: see [finetune/README.md](finetune/README.md).
+First visit asks you to create the admin account. Trying it with real brokers: see [PILOT.md](PILOT.md). Deploying for real: see [DEPLOY.md](DEPLOY.md). Fine-tuning a model: see [finetune/README.md](finetune/README.md).
 
 ## How a deal works
 1. A lead comes in (Leads page). Demo screening runs, then matching against inventory.
