@@ -27,9 +27,14 @@
     return SANCTIONED.includes(c) ? { ok: false, reason: 'Country on screening list' } : { ok: true };
   }
 
-  // Score 0..100: hard requirements must pass, then closeness on budget and age.
+  // Hard requirements must all pass (seats, range, age, type). Then the budget decides whether a deal is realistic:
+  //   asking price within budget            -> comfortable
+  //   asking above budget but our lowest acceptable price within it -> negotiable
+  //   only slightly (5%) above budget even at our lowest price      -> stretch
+  //   further away                                                  -> not returned (we could never close it)
+  // Seat fit adds a bonus so a 34-seater is not the top pick for a 60-seat need. Score is 0..100, best first.
   function matchAircraft(req, inventory = INVENTORY) {
-    const price = (a) => (req.mode === 'lease' ? a.leaseMonthly : a.listPrice);
+    const lease = req.mode === 'lease';
     return inventory
       .map((a) => {
         const reasons = [];
@@ -38,17 +43,19 @@
         if (req.maxAge && new Date().getFullYear() - a.year > req.maxAge) reasons.push('older than requested');
         if (req.type && req.type !== 'any' && a.type !== req.type) reasons.push('different type');
         if (reasons.length) return { aircraft: a, score: 0, reasons };
-        let score = 70;
+        const list = lease ? a.leaseMonthly : a.listPrice, lowest = lease ? a.minLeaseMonthly : Math.max(a.floor, list * (1 - a.maxDiscountPct / 100));
+        let score = 80;
         if (req.budget) {
-          const over = (price(a) - req.budget) / req.budget;
-          if (over <= 0) score += 30;
-          else if (over <= 0.15) score += 30 - over * 150; // within reach through negotiation
-          else reasons.push('over budget');
-        } else score += 15;
-        return { aircraft: a, score: Math.max(0, Math.round(score)), reasons };
+          if (list <= req.budget) score = 85;
+          else if (lowest <= req.budget) { score = 70 + 14 * ((req.budget - lowest) / Math.max(1, list - lowest)); reasons.push('asking price is above budget but within reach in negotiation'); }
+          else if (lowest <= req.budget * 1.05) { score = 55; reasons.push('stretch: only at our lowest acceptable price'); }
+          else return { aircraft: a, score: 0, reasons: ['out of budget'] };
+        }
+        if (req.seats) { const r = a.seats / req.seats; score += r <= 1.25 ? 15 : r <= 1.6 ? 8 : 0; } else score += 10;
+        return { aircraft: a, score: Math.min(100, Math.round(score)), reasons };
       })
       .filter((m) => m.score > 0)
-      .sort((x, y) => y.score - x.score);
+      .sort((x, y) => y.score - x.score || x.aircraft.listPrice - y.aircraft.listPrice);
   }
 
   const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US');

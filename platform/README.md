@@ -95,6 +95,13 @@ Every new lead is screened before it can become a deal. Result: **clear**, **nee
 - Viewers see only the status, never matched names or reviewer notes.
 - **This is not a compliance programme.** It does not cover ownership structures, vessels/aircraft registries, adverse media, ongoing re-screening of existing customers, or the specific lists and jurisdictions that apply to your business. Treat it as a first gate and get compliance and legal advice before trading.
 
+## Personal data (export and erasure)
+The platform stores buyers' names, companies and emails. For access and erasure requests, admins get **Export** and **Erase** on each lead (Leads page).
+- **Export** downloads everything held about the person (lead, deals, every message) as JSON, and is written to the activity log.
+- **Erase** (type ERASE to confirm) deletes the lead, its deals and all their messages, and replaces the person's name, company and email with `[erased]` wherever they appear in the activity log and in learned examples. The erasure itself is logged by id only, with counts.
+- New activity entries use ids, not names, so the log does not accumulate personal data.
+- Not covered: emails already delivered to the buyer, backups taken before the erasure (they keep the data until they rotate out, 14 days by default), names shorter than 3 characters, and names inside curated playbook examples or free text you typed elsewhere. There is no automatic retention policy; decide how long you keep leads and erase accordingly. This is a technical aid, not legal advice on your obligations.
+
 ## Loading your real inventory
 Inventory page, **Import from CSV** (admins and brokers). Download the template, fill one row per aircraft, choose the file or paste it, then **Preview**. The preview lists every row as new, update or error with the line number and reason; **Import** appears only when there are no errors, and a file with any error writes nothing.
 - Columns: `model, type, year, hours, seats, rangeNm, location, listPrice, floor, maxDiscountPct, leaseMonthly, minLeaseMonthly, minTermMonths`, plus optional `id` (an existing id updates that aircraft; blank creates a new one). Header case, spaces and underscores are ignored; `$` and thousands separators in numbers are accepted. Up to 500 rows per file.
@@ -103,7 +110,7 @@ Inventory page, **Import from CSV** (admins and brokers). Download the template,
 - Fields are validated like the single-aircraft form (price ranges, floor <= list price, safe ids).
 
 ## Tests
-`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), broker edit confirmation, hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, request limiting, access log and HSTS, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
+`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), broker edit confirmation, personal-data export and erasure, hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, request limiting, access log and HSTS, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
 
 ## Input handling and privacy
 - All write endpoints validate types and ranges (ids, prices, floor <= list, discounts, offers, playbook rules, scenarios) and return 400 instead of failing deep inside; text fields are length-limited.

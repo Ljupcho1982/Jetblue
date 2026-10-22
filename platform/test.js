@@ -69,4 +69,26 @@ assert.deepEqual(L.extractAmounts('$9.04M and 1,971 nm').map((a) => a.value), [9
   const t1 = L.negotiate({ aircraft: L.INVENTORY[0], mode: 'lease', offer: 86450, round: 1, termMonths: 6 });
   assert.equal(t1.action, 'counter'); assert.equal(t1.price, 86450); assert.match(t1.message, /price works for us/); assert.match(t1.message, /minimum term of 36 months/);
 }
+
+// Matching: every result meets the hard requirements and is reachable within budget; results are ordered best first
+{
+  let n = 0;
+  for (const mode of ['buy', 'lease']) for (const budget of [undefined, 0, 30000, 60000, 150000, 3e6, 9e6, 25e6]) for (const seats of [0, 6, 50, 60, 90]) for (const type of ['any', 'turboprop', 'light jet']) for (const rangeNm of [0, 800, 2000]) {
+    const req = { mode, budget, seats, type, rangeNm, maxAge: 15 }, res = L.matchAircraft(req);
+    for (const m of res) {
+      const a = m.aircraft, list = mode === 'lease' ? a.leaseMonthly : a.listPrice, lowest = mode === 'lease' ? a.minLeaseMonthly : Math.max(a.floor, list * (1 - a.maxDiscountPct / 100)), at = JSON.stringify(req) + ' ' + a.id;
+      assert.ok(a.seats >= seats && a.rangeNm >= rangeNm && (type === 'any' || a.type === type) && new Date().getFullYear() - a.year <= 15, 'hard requirement broken: ' + at);
+      if (budget) assert.ok(lowest <= budget * 1.05, 'unreachable aircraft returned: ' + at);
+      assert.ok(m.score > 0 && m.score <= 100, 'score out of range: ' + at);
+    }
+    for (let i = 1; i < res.length; i++) assert.ok(res[i - 1].score >= res[i].score, 'not sorted');
+    n++;
+  }
+  assert.ok(n > 500);
+  const by = (b) => L.matchAircraft({ mode: 'buy', budget: b, seats: 60 }).map((m) => m.aircraft.id);
+  assert.deepEqual(by(9e6), ['TP-01'], 'a 9M / 60-seat buyer should see only the ATR 72-500');
+  assert.ok(by(3e6).length === 0, 'nothing with 60 seats is within a 3M budget');
+  const top = L.matchAircraft({ mode: 'buy', seats: 60 })[0].aircraft; assert.ok(top.seats / 60 <= 1.25, 'best fit should be near the seat requirement');
+  assert.match(L.matchAircraft({ mode: 'buy', budget: 9e6, seats: 60 })[0].reasons[0], /within reach/);
+}
 console.log('logic tests passed');

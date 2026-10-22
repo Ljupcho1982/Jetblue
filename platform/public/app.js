@@ -137,10 +137,19 @@ const pages = {
     ${S.leads.map((l) => `<div class="card"><b>${esc(l.name)}</b> ${esc(l.company || '')} <span class="muted">· ${esc(l.country)} · ${esc(l.request.mode)}${l.email ? ' · ' + esc(l.email) : ''}</span>
       ${screeningHtml(l)}
       ${l.matches.map((m) => { const a = aircraft(m.aircraftId); return a ? `<div style="margin-top:8px">${esc(a.model)} <span class="tag">${esc(a.id)}</span> <span class="tag">match ${m.score}</span> ${priceOf(a, l.request.mode)} <span class="warn small">${esc(m.reasons.join(', '))}</span> ${can('deals.write') ? `<button class="small secondary" data-open="${esc(l.id)}|${esc(a.id)}">Open deal</button>` : ''}</div>` : ''; }).join('')}
-      ${l.screening.ok && !l.matches.length ? '<p class="muted small">No matching aircraft. Source inventory.</p>' : ''}</div>`).join('')}`;
+      ${l.screening.ok && !l.matches.length ? '<p class="muted small">No aircraft meet these requirements within the budget. Adjust the requirements or source matching inventory.</p>' : ''}
+      ${can('data.erase') ? `<div class="small" style="margin-top:8px;border-top:1px solid var(--line);padding-top:6px"><span class="muted">Personal data:</span> <button class="small secondary" data-export="${esc(l.id)}">Export</button> <button class="small danger" data-erase="${esc(l.id)}">Erase</button></div>` : ''}</div>`).join('')}`;
   },
   leadsInit() {
     if ($('#leadForm')) $('#leadForm').onsubmit = async (e) => { e.preventDefault(); await call('POST', 'leads', form(e.target)); await render(); };
+    document.querySelectorAll('[data-export]').forEach((b) => b.onclick = async () => {
+      const data = await call('GET', `leads/${b.dataset.export}/export`);
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })); a.download = `lead-${b.dataset.export}.json`; a.click(); toast('Exported (recorded in the activity log)');
+    });
+    document.querySelectorAll('[data-erase]').forEach((b) => b.onclick = async () => {
+      if (prompt('This permanently deletes this person, their deals and every message, and blanks their name and email in logs. Emails already sent cannot be recalled. Type ERASE to continue.') !== 'ERASE') return;
+      const r = await call('DELETE', `leads/${b.dataset.erase}`); toast(`Erased: ${r.deals} deal(s), ${r.messages} message(s), ${r.scrubbed} text field(s) scrubbed`); render();
+    });
     document.querySelectorAll('[data-rescreen]').forEach((b) => b.onclick = async () => { b.disabled = true; await call('POST', `leads/${b.dataset.rescreen}/rescreen`).catch(() => {}); render(); });
     document.querySelectorAll('[data-clear]').forEach((b) => b.onclick = async () => { const note = prompt('Why is this counterparty acceptable? (recorded, at least 10 characters)'); if (note) { await call('POST', `leads/${b.dataset.clear}/clear`, { note }).catch(() => {}); render(); } });
     document.querySelectorAll('[data-open]').forEach((b) => b.onclick = async () => { const [leadId, aircraftId] = b.dataset.open.split('|'); const d = await call('POST', 'deals', { leadId, aircraftId }); selectedDeal = d.id; location.hash = '#/deals'; });

@@ -271,6 +271,18 @@ async function api(req, url, ctx) {
     }
   }
 
+  if (p[0] === 'leads' && p[2] === 'export' && m === 'GET') { // subject access request
+    need('data.export');
+    const lead = store.leads.get(p[1]); if (!lead) throw httpErr(404, 'lead not found');
+    act('Lead data exported: ' + lead.id);
+    return { exportedAt: new Date().toISOString(), lead, deals: store.deals.list().filter((d) => d.leadId === lead.id) };
+  }
+  if (p[0] === 'leads' && p.length === 2 && m === 'DELETE') { // erasure request
+    need('data.erase');
+    const out = store.leads.erase(p[1]); if (!out) throw httpErr(404, 'lead not found');
+    act(`Lead erased: ${p[1]} (${out.deals} deal(s), ${out.messages} message(s) deleted, ${out.scrubbed} text field(s) scrubbed)`);
+    return { ok: true, ...out };
+  }
   if (p[0] === 'leads' && p[2] === 'rescreen' && m === 'POST') { // re-run after an error or after the list/provider changed
     need('leads.write');
     const lead = store.leads.get(p[1]); if (!lead) throw httpErr(404, 'lead not found');
@@ -307,7 +319,7 @@ async function api(req, url, ctx) {
       matches: screen.ok ? Logic.matchAircraft(request, store.aircraft.list()).map((x) => ({ aircraftId: x.aircraft.id, score: x.score, reasons: x.reasons })) : [] };
     if (!lead.name) throw httpErr(400, 'name required');
     if (b.email) { if (!mailer.validEmail(b.email)) throw httpErr(400, 'Invalid buyer email'); lead.email = b.email.toLowerCase(); }
-    store.tx(() => { store.leads.insert(lead); act(`Lead ${lead.name}: ${lead.status}, ${lead.matches.length} match(es)`); });
+    store.tx(() => { store.leads.insert(lead); act(`Lead ${lead.id}: ${lead.status}, ${lead.matches.length} match(es)`); });
     return lead;
   }
 
@@ -317,7 +329,7 @@ async function api(req, url, ctx) {
       const lead = store.leads.get(b.leadId), a = store.aircraft.get(b.aircraftId);
       if (!lead || !a || !lead.screening.ok) throw httpErr(400, 'invalid lead/aircraft or lead on compliance hold');
       const d = { id: id(), leadId: lead.id, buyer: lead.name, company: lead.company, aircraftId: a.id, mode: lead.request.mode, stage: 'negotiating' };
-      store.tx(() => { store.deals.insert(d); act(`Deal opened: ${lead.name} / ${a.id}`); });
+      store.tx(() => { store.deals.insert(d); act(`Deal opened ${d.id} for lead ${lead.id} / ${a.id}`); });
       return store.deals.get(d.id);
     }
     const d = store.deals.get(p[1]); if (!d) throw httpErr(404, 'deal not found');

@@ -144,6 +144,20 @@ const leads = {
   get: (id) => leadRow(q('SELECT * FROM leads WHERE id=?').get(id)),
   insert: (l) => { q('INSERT INTO leads (id,created_at,name,company,email,country,status,request,screening,matches) VALUES (?,?,?,?,?,?,?,?,?,?)').run(l.id, l.createdAt, l.name, l.company ?? null, l.email ?? null, l.country ?? null, l.status, j(l.request), j(l.screening), j(l.matches)); },
   setScreening: (id, screening, status, matches) => { q('UPDATE leads SET screening=?, status=?, matches=? WHERE id=?').run(j(screening), status, j(matches), id); },
+  // Right to erasure: removes the lead, its deals and messages, and blanks the person's name/email wherever it was
+  // written into free text (activity log, learned replies). Returns what was touched.
+  erase: (id) => tx(() => {
+    const l = leadRow(q('SELECT * FROM leads WHERE id=?').get(id)); if (!l) return null;
+    const dealIds = q('SELECT id FROM deals WHERE lead_id=?').all(id).map((d) => d.id);
+    const messages = dealIds.reduce((n, d) => n + q('SELECT COUNT(*) n FROM messages WHERE deal_id=?').get(d).n, 0);
+    q('DELETE FROM deals WHERE lead_id=?').run(id); q('DELETE FROM leads WHERE id=?').run(id);
+    let scrubbed = 0;
+    for (const term of [l.name, l.email, l.company].filter((t) => t && t.trim().length >= 3)) {
+      scrubbed += q('UPDATE activity SET msg=REPLACE(msg, ?, ?) WHERE instr(msg, ?) > 0').run(term, '[erased]', term).changes;
+      scrubbed += q('UPDATE learned SET reply=REPLACE(reply, ?, ?), situation=REPLACE(situation, ?, ?) WHERE instr(reply, ?) > 0 OR instr(situation, ?) > 0').run(term, '[erased]', term, '[erased]', term, term).changes;
+    }
+    return { deals: dealIds.length, messages, scrubbed };
+  }),
   setEmail: (id, email) => { q('UPDATE leads SET email=? WHERE id=?').run(email, id); },
 };
 
