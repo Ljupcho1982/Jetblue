@@ -1,10 +1,19 @@
 // Zero-dependency platform server: static UI + JSON API + optional model wording. Data lives in SQLite (store.js).
+// Friendly message instead of a stack trace when Node.js is too old (the database needs Node 22.13 or newer).
+try { require('node:sqlite'); } catch {
+  console.error(`\nThis program needs Node.js 22.13 or newer, and this computer has ${process.version}.\nInstall the "LTS" version from https://nodejs.org , close this window, and start the program again.\n`);
+  process.exit(1);
+}
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Logic = require('./logic.js');
-const store = require('./store.js');
+let store;
+try { store = require('./store.js'); } catch (e) {
+  console.error(`\nCould not open the database: ${e.message}\nIf you started the program from inside a zip file, extract the zip first. If the folder is read-only, move the program to a normal folder such as Documents.\n`);
+  process.exit(1);
+}
 const llm = require('./llm.js');
 const auth = require('./auth.js');
 const mailer = require('./mailer.js');
@@ -558,8 +567,23 @@ function startBackups() {
 }
 
 if (require.main === module) {
-  const port = process.env.PORT || 3000, host = process.env.HOST || '127.0.0.1';
-  server.listen(port, host, () => console.log(`Platform on http://${host}:${port}  (wording: ${llm.enabled() ? JSON.stringify(llm.describe()) : 'templates (set LLM_PROVIDER=ollama to use an open-source model)'}; email: ${mailer.enabled() ? mailer.describe().provider : 'off'})`));
+  const host = process.env.HOST || '127.0.0.1', explicitPort = !!process.env.PORT;
+  let port = Number(process.env.PORT) || 3000, retriesLeft = explicitPort ? 0 : 10; // without PORT, a busy 3000 just moves on to 3001, 3002...
+  server.on('error', (e) => {
+    if (e.code === 'EADDRINUSE' && retriesLeft-- > 0) { port++; return server.listen(port, host); }
+    console.error(e.code === 'EADDRINUSE' ? `\nPort ${port} is already in use by another program (maybe this program is already running in another window).\nClose the other one, or start this with a different port: PORT=${port + 1}\n`
+      : e.code === 'EACCES' ? `\nNot allowed to use port ${port}. Try a different one: PORT=3000\n` : `\nCould not start: ${e.message}\n`);
+    process.exit(1);
+  });
+  server.on('listening', () => {
+    const url = `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${server.address().port}`;
+    console.log(`Platform on ${url}  (wording: ${llm.enabled() ? JSON.stringify(llm.describe()) : 'templates (set LLM_PROVIDER=ollama to use an open-source model)'}; email: ${mailer.enabled() ? mailer.describe().provider : 'off'})`);
+    if (process.env.OPEN_BROWSER === '1') { // the start scripts set this so the browser opens on the right address, whichever port was free
+      const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+      try { require('child_process').spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref(); } catch { /* no browser available: the address above still works */ }
+    }
+  });
+  server.listen(port, host);
   if (host !== '127.0.0.1' && host !== 'localhost' && process.env.COOKIE_SECURE !== '1') console.warn('warning: listening beyond localhost without COOKIE_SECURE=1; serve it over HTTPS and set COOKIE_SECURE=1');
   startBackups();
   let closing = false;

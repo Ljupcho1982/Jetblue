@@ -18,6 +18,30 @@ When you are ready to use your own aircraft, stop it and start it again with the
 
 Your information is saved in the folder `platform/data` on your computer. Copy that folder somewhere safe to make a backup.
 
+### If the browser says "refused to connect" (ERR_CONNECTION_REFUSED)
+
+That message only means the program is **not running**. A browser cannot start it; the black window from `start.bat` (or `start.sh`) is the program, and it must stay open.
+
+1. Look for the black window. It should say `Platform on http://127.0.0.1:3000` (the number may be 3001 or higher if 3000 was busy; the browser opens on the right one by itself). Keep it open.
+2. If the window shows a message, it says what to fix. The usual ones:
+   - **"Cannot find the platform folder"**: you started it from inside the zip. Right-click the zip, choose Extract All, and start it from the new folder.
+   - **"Node.js is not installed"** or **"too old"**: install the LTS version from https://nodejs.org, **restart the computer**, and start it again. (Version 22.13 or newer is needed.)
+   - **"Port ... is already in use"**: the program is already running in another window. Use that one, or close it and start again.
+3. If the window disappears instantly: open the folder, click the address bar at the top, type `cmd` and press Enter, then type `start.bat` and press Enter. The window now stays open. Take a photo or screenshot of the text and send it to me.
+4. Make sure you downloaded the **latest zip** (the link in Part 1 always gives the newest version).
+
+### Ако пишува „refused to connect" (ERR_CONNECTION_REFUSED)
+
+Тоа значи само дека програмата **не работи**. Прелистувачот не може сам да ја стартува. Црниот прозорец од `start.bat` е самата програма и мора да остане отворен.
+
+1. Побарај го црниот прозорец. Треба да пишува `Platform on http://127.0.0.1:3000` (бројот може да е 3001 или повисок ако 3000 е зафатен; прелистувачот сам се отвора на вистинската адреса). Остави го отворен.
+2. Ако прозорецот прикажува порака, таа кажува што да поправиш. Најчести:
+   - **„Cannot find the platform folder"**: си го стартувал од внатре во zip-от. Десен клик на zip, „Extract All", па стартувај од новата папка.
+   - **„Node.js is not installed"** или **„too old"**: инсталирај ја LTS верзијата од https://nodejs.org, **рестартирај го компјутерот** и стартувај пак. (Треба верзија 22.13 или понова.)
+   - **„Port ... is already in use"**: програмата веќе работи во друг прозорец. Користи го тој, или затвори го и стартувај пак.
+3. Ако прозорецот исчезне веднаш: отвори ја папката, кликни на адресната лента горе, напиши `cmd` и притисни Enter, па напиши `start.bat` и притисни Enter. Сега прозорецот останува отворен. Сликај го текстот и испрати ми го.
+4. Провери дали си го симнал **најновиот zip** (линкот во Дел 1 секогаш дава најнова верзија).
+
 ## Part 2. Put it on the internet for your team (about 1 hour, a few dollars a month)
 
 You need two things from other companies. **I cannot create or pay for these for you.**
