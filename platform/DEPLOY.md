@@ -37,6 +37,8 @@ docker compose start app
 Practice a restore once before you need it.
 
 ## Upgrade
+Upgrades and restores are covered by `upgrade.test.js`: databases created at every earlier schema version are built, filled with data, opened by the current code and checked (users keep their sessions and do not suddenly get two-factor, deals and messages are intact, a second start changes nothing), and a backup is restored with the steps above. It cannot test your own data, so still take a backup first.
+
 `git pull && docker compose up -d --build`. Schema changes run automatically at start (versioned migrations). Take a backup first: `docker compose exec app node backup.js /backups/manual-$(date +%F).db`.
 
 ## Move from the old JSON store

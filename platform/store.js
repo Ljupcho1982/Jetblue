@@ -283,4 +283,4 @@ function backup(dest) { if (fs.existsSync(dest)) throw new Error(dest + ' alread
 migrate();
 seed();
 
-module.exports = { db, tx, users, sessions, aircraft, leads, deals, learned, feedback, activity: activityLog, playbook, defaultPlaybook, reset, importLegacy, backup, FILE };
+module.exports = { MIGRATIONS, db, tx, users, sessions, aircraft, leads, deals, learned, feedback, activity: activityLog, playbook, defaultPlaybook, reset, importLegacy, backup, FILE };
