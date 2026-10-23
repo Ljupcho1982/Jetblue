@@ -1,0 +1,7 @@
+// Cloudflare Workers "static assets" config for the interactive preview (a plain web page, no server).
+// The REAL app (Node + database file) cannot run on Workers as-is; see START-HERE.md, Part 4, for the Cloudflare Tunnel route.
+{
+  "name": "aircraft-deal-preview",
+  "compatibility_date": "2025-09-01",
+  "assets": { "directory": "./dist" }
+}

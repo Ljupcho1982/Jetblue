@@ -62,7 +62,40 @@ It installs everything, switches on the secure padlock (HTTPS) automatically, an
 
 If something does not work, run `docker compose logs --tail 50` in that folder and send me what it prints.
 
-## Part 3. Before real customers
+## Part 4. Cloudflare
+
+Cloudflare cannot run the real program on its own "Workers" hosting: the real program is a normal server with a database file, and Workers cannot run that without rewriting it. Two things do work on Cloudflare today.
+
+### A. Put the clickable demo online (free, about 5 minutes, no server)
+This is the same demo you saw in the browser: sample data only, nothing saved. It is a plain web page, so Cloudflare hosts it easily, and you get a shareable web address.
+1. Do Part 1 first so Node.js is installed and the project is extracted.
+2. Open a terminal **in the `platform` folder** (open the folder, click the address bar, type `cmd`, press Enter).
+3. Run these two commands. The first opens your browser so you can sign in to your Cloudflare account (it is free to create one); the second builds and publishes the demo:
+```
+npx wrangler login
+npm run deploy:preview
+```
+4. It prints an address like `https://aircraft-deal-preview.YOURNAME.workers.dev`. Open it. To update it later, run the second command again.
+
+Prefer clicking over typing? In the Cloudflare dashboard go to **Workers & Pages**, create an application from a Git repository, pick this GitHub project and branch, and set: root directory `platform`, build command `npm run build:preview`, deploy command `npx wrangler deploy`. (Cloudflare changes its screens now and then, so the wording may differ a little.)
+
+### B. Use the real program from the internet through Cloudflare (a "tunnel")
+The real program keeps running on your own computer (or a small server), and a free Cloudflare tunnel gives it a secure `https://` address that others can open. Nothing is uploaded to Cloudflare except the traffic passing through.
+1. **Create the administrator account first, on your own computer** (Part 1, open http://127.0.0.1:3000). The first person to open a new installation becomes the administrator, so never put an empty installation on the internet.
+2. Install the Cloudflare tunnel program (`cloudflared`): Windows, in a terminal run `winget install Cloudflare.cloudflared`; Mac, run `brew install cloudflared`.
+3. Start the program as in Part 1 but tell it a proxy is in front of it. In a terminal in the project folder:
+   - Windows: `set TRUST_PROXY=1` and then `start.bat real`
+   - Mac: `TRUST_PROXY=1 bash start.sh real`
+4. Open a **second** terminal window and run:
+```
+cloudflared tunnel --url http://127.0.0.1:3000
+```
+   (If the first window says the program is on a different port, use that number instead of 3000.) It prints a temporary address ending in `trycloudflare.com`. That is your public address. It changes each time you start it.
+5. Turn on two-factor sign-in on the Account page before sharing the address, and give people only the roles they need. The computer must stay on and awake while others use it. For a permanent address on your own domain, use a "named tunnel" (in the Cloudflare dashboard under Zero Trust, Networks, Tunnels) instead of the temporary one.
+
+A tunnel from a home computer is fine for a trial. For a team that depends on it, a small rented server (Part 2) is more reliable, and it can sit behind Cloudflare too.
+
+## Part 5. Before real customers
 
 - Read **platform/PILOT.md**: a two-week checklist for trying it with one or two brokers.
 - Turn on two-factor sign-in (Account page). Administrators are required to by default on a server.

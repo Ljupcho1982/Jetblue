@@ -18,6 +18,6 @@ const js = (f) => read(f).replace(/<\/script/gi, '<\\/script');
 const note = '<div class="preview-note"><b>Interactive preview.</b> This runs in your browser with sample data: nothing is saved or sent, and a refresh resets it. Questions the app would ask in a pop-up are answered automatically. User accounts, two-factor sign-in, CSV import and file downloads need the real app. Demo screening list: “Ivan Petrov” is a list match; “Ivan Petrovv” needs review.</div>';
 const body = [`<title>Aircraft Deal Platform</title>`, `<style>\n${css}</style>`, note, markup,
   '<script>window.process = { env: {} };</script>', `<script>\n${js(path.join(root, 'logic.js'))}\n</script>`, `<script>\n${js(path.join(__dirname, 'preview-shim.js'))}\n</script>`, `<script>\n${js(path.join(pub, 'app.js'))}\n</script>`].join('\n');
-const html = wrap ? `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>\n${body}\n</body></html>` : body;
+const html = wrap ? `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"></head><body>\n${body}\n</body></html>` : body;
 fs.mkdirSync(path.dirname(out), { recursive: true }); fs.writeFileSync(out, html);
 console.log(`wrote ${out} (${(html.length / 1024).toFixed(0)} KB)`);
