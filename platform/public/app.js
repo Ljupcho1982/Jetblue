@@ -1,7 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US');
-let TODO = [], S = null, selectedDeal = null, ME = null, PERMS = [], MUST_ENROLL = false, MUST_POLICY = false;
+let LEAD_Q = '', DEAL_Q = '', CUR_DEALS = [], TODO = [], S = null, selectedDeal = null, ME = null, PERMS = [], MUST_ENROLL = false, MUST_POLICY = false;
 const can = (p) => PERMS.includes('*') || PERMS.includes(p);
 
 async function call(method, path, body) {
@@ -50,16 +50,16 @@ const pages = {
     }
     for (const l of S.leads) if (!l.screening.ok && ['review', 'error'].includes(l.screening.status)) todo.push({ kind: 'Screening needs review', tone: 'warn', text: `${l.name}${l.company ? ', ' + l.company : ''}`, lead: true });
     TODO = todo;
-    const pending = S.deals.reduce((n, d) => n + d.messages.filter((m) => m.status === 'draft').length, 0);
-    const fresh = !S.leads.length && !S.deals.length;
+    const C = S.counts || {}, pending = C.draftsPending ?? S.deals.reduce((n, d) => n + d.messages.filter((m) => m.status === 'draft').length, 0);
+    const fresh = !(C.leads || S.leads.length) && !(C.deals || S.deals.length);
     return `<h1>Dashboard</h1>
     <div class="stats">
-      <div class="stat"><b>${S.inventory.length}</b>Aircraft listed</div>
-      <div class="stat"><b>${S.leads.filter((l) => l.status === 'qualified').length}</b>Qualified leads</div>
-      <div class="stat"><b>${S.deals.filter((d) => d.stage === 'negotiating').length}</b>Active deals</div>
+      <div class="stat"><b>${C.aircraft ?? S.inventory.length}</b>Aircraft listed</div>
+      <div class="stat"><b>${C.leadsQualified ?? 0}</b>Qualified leads</div>
+      <div class="stat"><b>${C.dealsNegotiating ?? 0}</b>Active deals</div>
       <div class="stat"><b>${pending}</b>Drafts awaiting approval</div>
-      <div class="stat"><b>${S.deals.filter((d) => d.stage === 'escalated').length}</b>Escalated</div>
-      <div class="stat"><b>${S.deals.filter((d) => d.stage === 'LOI').length}</b>At LOI</div>
+      <div class="stat"><b>${C.dealsEscalated ?? 0}</b>Escalated</div>
+      <div class="stat"><b>${C.dealsLOI ?? 0}</b>At LOI</div>
     </div>
     ${fresh && can('leads.write') ? `<div class="card"><h2>Getting started</h2><ol class="steps">
       <li>${S.inventory.length ? `<span class="ok">Done</span>` : ''} <a href="#/inventory">Load your aircraft</a> (import a CSV or add them one by one) and set each aircraft's private floor price and limits.</li>
@@ -127,7 +127,8 @@ const pages = {
     });
   },
 
-  leads() {
+  async leads() {
+    const C = S.counts || {}, shown = LEAD_Q ? await call('GET', 'leads/search?q=' + encodeURIComponent(LEAD_Q)) : S.leads;
     return `<h1>Leads</h1>
     ${can('leads.write') ? `<div class="card"><h2>New inquiry</h2><form id="leadForm"><div class="grid">
       <label>Name<input name="name" required></label><label>Company<input name="company"></label><label>Buyer email<input name="email" type="email" autocomplete="off"></label><label>Country<input name="country" required></label>
@@ -136,13 +137,16 @@ const pages = {
       <label>Min seats<input name="seats" type="number"></label><label>Min range (nm)<input name="rangeNm" type="number"></label>
       <label>Max age (yrs)<input name="maxAge" type="number"></label><label>Budget (per month if lease)<input name="budget" type="number"></label>
     </div><button>Screen and match</button></form></div>` : ''}
-    ${S.leads.map((l) => `<div class="card"><b>${esc(l.name)}</b> ${esc(l.company || '')} <span class="muted">· ${esc(l.country)} · ${esc(l.request.mode)}${l.email ? ' · ' + esc(l.email) : ''}</span>
+    ${can('leads.write') ? `<div class="card"><form id="leadSearch" style="display:flex;gap:8px"><input name="q" placeholder="Find a lead by name, company, email or id" value="${esc(LEAD_Q)}" aria-label="Search leads"><button class="secondary" style="margin:0">Search</button>${LEAD_Q ? '<button type="button" class="secondary" id="leadSearchClear" style="margin:0">Clear</button>' : ''}</form>
+      ${LEAD_Q ? `<p class="small muted">${shown.length} result(s) for "${esc(LEAD_Q)}"</p>` : (C.leads > S.leads.length ? `<p class="small muted">Showing the newest ${S.leads.length} of ${C.leads} leads (plus any waiting for a compliance decision). Use search to find older ones.</p>` : '')}</div>` : ''}
+    ${shown.map((l) => `<div class="card"><b>${esc(l.name)}</b> ${esc(l.company || '')} <span class="muted">· ${esc(l.country)} · ${esc(l.request.mode)}${l.email ? ' · ' + esc(l.email) : ''}</span>
       ${screeningHtml(l)}
       ${l.matches.map((m) => { const a = aircraft(m.aircraftId); return a ? `<div style="margin-top:8px">${esc(a.model)} <span class="tag">${esc(a.id)}</span> <span class="tag">match ${m.score}</span> ${priceOf(a, l.request.mode)} <span class="warn small">${esc(m.reasons.join(', '))}</span> ${can('deals.write') ? `<button class="small secondary" data-open="${esc(l.id)}|${esc(a.id)}">Open deal</button>` : ''}</div>` : ''; }).join('')}
       ${l.screening.ok && !l.matches.length ? '<p class="muted small">No aircraft meet these requirements within the budget. Adjust the requirements or source matching inventory.</p>' : ''}
       ${can('data.erase') ? `<div class="small" style="margin-top:8px;border-top:1px solid var(--line);padding-top:6px"><span class="muted">Personal data:</span> <button class="small secondary" data-export="${esc(l.id)}">Export</button> <button class="small danger" data-erase="${esc(l.id)}">Erase</button></div>` : ''}</div>`).join('')}`;
   },
   leadsInit() {
+    if ($('#leadSearch')) { $('#leadSearch').onsubmit = (e) => { e.preventDefault(); LEAD_Q = (form(e.target).q || '').trim(); if (LEAD_Q.length === 1) { LEAD_Q = ''; return toast('Type at least 2 characters'); } render(); }; if ($('#leadSearchClear')) $('#leadSearchClear').onclick = () => { LEAD_Q = ''; render(); }; }
     if ($('#leadForm')) $('#leadForm').onsubmit = async (e) => { e.preventDefault(); await call('POST', 'leads', form(e.target)); await render(); };
     document.querySelectorAll('[data-export]').forEach((b) => b.onclick = async () => {
       const data = await call('GET', `leads/${b.dataset.export}/export`);
@@ -157,10 +161,12 @@ const pages = {
     document.querySelectorAll('[data-open]').forEach((b) => b.onclick = async () => { const [leadId, aircraftId] = b.dataset.open.split('|'); const d = await call('POST', 'deals', { leadId, aircraftId }); selectedDeal = d.id; location.hash = '#/deals'; });
   },
 
-  deals() {
-    const d = S.deals.find((x) => x.id === selectedDeal) || S.deals[0];
+  async deals() {
+    const C = S.counts || {}, all = DEAL_Q ? await call('GET', 'deals/search?q=' + encodeURIComponent(DEAL_Q)) : S.deals;
+    CUR_DEALS = all;
+    const d = all.find((x) => x.id === selectedDeal) || all[0];
     if (d) selectedDeal = d.id;
-    const list = S.deals.map((x) => `<div class="deal-item ${x.id === selectedDeal ? 'active' : ''}" data-deal="${esc(x.id)}"><b>${esc(x.buyer)}</b><br><span class="small">${esc(aircraft(x.aircraftId)?.model || x.aircraftId)}</span><br><span class="tag ${x.stage === 'LOI' ? 'ok' : x.stage === 'escalated' ? 'bad' : ''}">${esc(x.stage)}</span></div>`).join('') || '<p class="muted">No deals yet. Open one from a lead.</p>';
+    const list = all.map((x) => `<div class="deal-item ${x.id === selectedDeal ? 'active' : ''}" data-deal="${esc(x.id)}"><b>${esc(x.buyer)}</b><br><span class="small">${esc(aircraft(x.aircraftId)?.model || x.aircraftId)}</span><br><span class="tag ${x.stage === 'LOI' ? 'ok' : x.stage === 'escalated' ? 'bad' : ''}">${esc(x.stage)}</span></div>`).join('') || '<p class="muted">No deals yet. Open one from a lead.</p>';
     let detail = '<div class="card muted">Select a deal.</div>';
     if (d) {
       const a = aircraft(d.aircraftId) || {}; const pending = d.messages.find((m) => m.status === 'draft');
@@ -174,9 +180,12 @@ const pages = {
         ${['LOI', 'escalated'].includes(d.stage) ? `<p class="${d.stage === 'LOI' ? 'ok' : 'bad'}">${d.stage === 'LOI' ? 'Ready for letter of intent (human step).' : 'Escalated to the human broker.'}</p>` : ''}
         ${!pending && d.stage === 'negotiating' && can('deals.write') ? `<div class="grid"><label>Buyer's offer (${d.mode === 'lease' ? 'per month' : 'USD'})<input id="offer" type="number"></label>${d.mode === 'lease' ? '<label>Term (months)<input id="term" type="number" value="36"></label>' : ''}</div><button id="sendOffer">Submit buyer's offer</button>` : ''}</div>`;
     }
-    return `<h1>Deals</h1><div class="split"><div>${list}</div><div>${detail}</div></div>`;
+    const search = can('deals.write') ? `<form id="dealSearch" style="display:flex;gap:6px;margin-bottom:8px"><input name="q" placeholder="Find a deal" value="${esc(DEAL_Q)}" aria-label="Search deals"><button class="secondary" style="margin:0">Go</button>${DEAL_Q ? '<button type="button" class="secondary" id="dealSearchClear" style="margin:0">×</button>' : ''}</form>
+      ${DEAL_Q ? `<p class="small muted">${all.length} result(s)</p>` : (C.deals > S.deals.length ? `<p class="small muted">Open deals and the newest others (${S.deals.length} of ${C.deals}). Search for older ones.</p>` : '')}` : '';
+    return `<h1>Deals</h1><div class="split"><div>${search}${list}</div><div>${detail}</div></div>`;
   },
   dealsInit() {
+    if ($('#dealSearch')) { $('#dealSearch').onsubmit = (e) => { e.preventDefault(); DEAL_Q = (form(e.target).q || '').trim(); if (DEAL_Q.length === 1) { DEAL_Q = ''; return toast('Type at least 2 characters'); } render(); }; if ($('#dealSearchClear')) $('#dealSearchClear').onclick = () => { DEAL_Q = ''; render(); }; }
     document.querySelectorAll('[data-deal]').forEach((el) => el.onclick = () => { selectedDeal = el.dataset.deal; render(); });
     const send = $('#sendOffer'); if (send) send.onclick = async () => { const offer = $('#offer').value; if (!offer) return; send.disabled = true; await call('POST', `deals/${selectedDeal}/offer`, { offer, termMonths: $('#term')?.value }); await render(); };
     const ap = $('[data-approve]'); if (ap) ap.onclick = async () => {
@@ -192,7 +201,7 @@ const pages = {
     document.querySelectorAll('[data-send]').forEach((b) => b.onclick = async () => { b.disabled = true; await call('POST', `deals/${selectedDeal}/messages/${b.dataset.send}/send`).catch(() => {}); await render(); });
     document.querySelectorAll('[data-addemail]').forEach((b) => b.onclick = async () => {
       const email = prompt('Buyer email address'); if (!email) return;
-      const d = S.deals.find((x) => x.id === selectedDeal);
+      const d = CUR_DEALS.find((x) => x.id === selectedDeal);
       await call('PUT', 'leads/' + d.leadId, { email }).catch(() => {}); await call('POST', `deals/${selectedDeal}/messages/${b.dataset.addemail}/send`).catch(() => {}); await render();
     });
     const fl = $('[data-flag]'); if (fl) fl.onclick = async () => {

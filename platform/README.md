@@ -101,6 +101,11 @@ Built for the first weeks of real use. Brokers and admins can **Flag a problem**
 - **Make test** (admin) turns a flagged draft into a permanent test scenario using the decision you say it *should* have been (accept, counter or escalate). It fails on the Training page's test run until the rules or playbook are fixed, so each real mistake is fixed once and stays fixed. **Resolve** closes an item with a note.
 - Erasing a lead also deletes feedback about its deals, since flagged drafts can quote reply text.
 
+## Growth and search
+The browser never downloads everything. The page state carries exact totals (computed in the database), the newest 200 leads plus any lead still waiting for a compliance decision, and every deal that still needs work (negotiating, escalated, or with an undelivered email) plus the newest 100 others. With 3,000 deals that is about 100 KB instead of 6 MB (tested in `scale.test.js`). The Leads and Deals pages say when a list is partial and have a search box (name, company, email or id; case-insensitive, `%` and `_` are literal, results capped at 50 leads / 20 deals, at least 2 characters) that reaches older records. Search is also how an erasure or export request finds an old lead. Viewers have no search and no buyer details.
+- Very old closed deals are not listed unless you search; they stay in the database and in exports.
+- Rough ceiling: SQLite on one server handles hundreds of thousands of rows comfortably. If you outgrow one server, see the Postgres note under Database.
+
 ## Personal data (export and erasure)
 The platform stores buyers' names, companies and emails. For access and erasure requests, admins get **Export** and **Erase** on each lead (Leads page).
 - **Export** downloads everything held about the person (lead, deals, every message) as JSON, and is written to the activity log.
@@ -116,7 +121,7 @@ Inventory page, **Import from CSV** (admins and brokers). Download the template,
 - Fields are validated like the single-aircraft form (price ranges, floor <= list price, safe ids).
 
 ## Tests
-`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), broker edit confirmation, personal-data export and erasure, pilot feedback, upgrade and restore, hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, request limiting, access log and HSTS, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
+`npm test` runs: rules engine, API flow, open-source model path (mock model server), auth and roles, database (constraints, concurrency, JSON import, backup), email (mock relay), operations (health, proxy IPs, backups, shutdown), two-factor (RFC 6238 vectors, replay, lockout, policy), broker edit confirmation, personal-data export and erasure, pilot feedback, upgrade and restore, growth and search, hardening (input validation, malformed cookies and bodies, path traversal, activity-log privacy), CSV import and the demo switch, request limiting, access log and HSTS, screening (name matching, provider failure modes, review and clearing rules). `python3 -m unittest discover -s finetune -p "test_*.py"` tests the fine-tuning data scripts.
 
 ## Input handling and privacy
 - All write endpoints validate types and ranges (ids, prices, floor <= list, discounts, offers, playbook rules, scenarios) and return 400 instead of failing deep inside; text fields are length-limited.

@@ -92,7 +92,7 @@ function redactedState(st) {
     inventory: st.inventory.map((a) => Object.fromEntries(Object.entries(a).filter(([k]) => !PRIVATE_AIRCRAFT.includes(k)))),
     leads: st.leads.map(({ email, screening: s, ...l }) => ({ ...l, screening: { ok: s.ok, status: s.status } })),
     deals: st.deals.map((d) => ({ ...d, messages: d.messages.filter((x) => x.role === 'buyer' || x.status === 'sent').map(({ facts, original, note, flags, source, deliveryError, ...x }) => x) })),
-    activity: st.activity, playbook: null, learned: [], llm: { enabled: st.llm.enabled }, mail: { enabled: st.mail.enabled },
+    counts: st.counts, activity: st.activity, playbook: null, learned: [], llm: { enabled: st.llm.enabled }, mail: { enabled: st.mail.enabled },
   };
 }
 
@@ -246,7 +246,7 @@ async function api(req, url, ctx) {
   }
 
   if (p[0] === 'state' && m === 'GET') {
-    const st = { inventory: store.aircraft.list(), leads: store.leads.list(), deals: store.deals.list(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe(), mail: mailer.describe(), demo: DEMO(), screening: screening.describe() };
+    const st = { counts: store.counts(), inventory: store.aircraft.list(), leads: store.leads.listForState(), deals: store.deals.listForState(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe(), mail: mailer.describe(), demo: DEMO(), screening: screening.describe() };
     if (!auth.can(user, 'users.manage')) st.activity = st.activity.filter((x) => !AUTH_EVENT.test(x.msg));
     return auth.can(user, 'view.full') ? st : redactedState(st);
   }
@@ -271,6 +271,11 @@ async function api(req, url, ctx) {
     }
   }
 
+  if (p[0] === 'leads' && p[1] === 'search' && m === 'GET') { // finds older leads that the lists no longer carry (also needed for erasure requests)
+    need('leads.write');
+    const term = (url.searchParams.get('q') || '').trim(); if (term.length < 2) throw httpErr(400, 'Type at least 2 characters');
+    return store.leads.search(term);
+  }
   if (p[0] === 'leads' && p[2] === 'export' && m === 'GET') { // subject access request
     need('data.export');
     const lead = store.leads.get(p[1]); if (!lead) throw httpErr(404, 'lead not found');
@@ -325,6 +330,10 @@ async function api(req, url, ctx) {
 
   if (p[0] === 'deals') {
     need('deals.write');
+    if (m === 'GET' && p[1] === 'search') {
+      const term = (url.searchParams.get('q') || '').trim(); if (term.length < 2) throw httpErr(400, 'Type at least 2 characters');
+      return store.deals.search(term);
+    }
     if (m === 'POST' && !p[1]) {
       const lead = store.leads.get(b.leadId), a = store.aircraft.get(b.aircraftId);
       if (!lead || !a || !lead.screening.ok) throw httpErr(400, 'invalid lead/aircraft or lead on compliance hold');

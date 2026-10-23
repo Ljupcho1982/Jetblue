@@ -146,8 +146,14 @@ const aircraft = {
 
 // ---- leads ----
 const leadRow = (r) => r && ({ id: r.id, createdAt: r.created_at, name: r.name, company: r.company, email: r.email, country: r.country, status: r.status, request: unj(r.request), screening: unj(r.screening), matches: unj(r.matches) });
+const likeTerm = (t) => '%' + String(t).replace(/[\\%_]/g, '\\$&') + '%'; // user text must not act as a wildcard
 const leads = {
   list: () => q('SELECT * FROM leads ORDER BY created_at DESC, rowid DESC').all().map(leadRow),
+  // For the UI: the newest `recent` leads plus every lead still waiting for a compliance decision, however old.
+  listForState: (recent = 200) => q(`SELECT * FROM leads WHERE id IN (SELECT id FROM leads ORDER BY created_at DESC, rowid DESC LIMIT ?)
+      OR (status='compliance-hold' AND json_extract(screening,'$.status') IN ('review','error')) ORDER BY created_at DESC, rowid DESC`).all(recent).map(leadRow),
+  count: () => q('SELECT COUNT(*) n FROM leads').get().n,
+  search: (term, limit = 50) => { const t = likeTerm(term); return q("SELECT * FROM leads WHERE name LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(t, t, t, String(term).trim(), limit).map(leadRow); },
   get: (id) => leadRow(q('SELECT * FROM leads WHERE id=?').get(id)),
   insert: (l) => { q('INSERT INTO leads (id,created_at,name,company,email,country,status,request,screening,matches) VALUES (?,?,?,?,?,?,?,?,?,?)').run(l.id, l.createdAt, l.name, l.company ?? null, l.email ?? null, l.country ?? null, l.status, j(l.request), j(l.screening), j(l.matches)); },
   setScreening: (id, screening, status, matches) => { q('UPDATE leads SET screening=?, status=?, matches=? WHERE id=?').run(j(screening), status, j(matches), id); },
@@ -181,7 +187,19 @@ const msgRow = (r) => {
   return m;
 };
 const dealRow = (r, messages) => r && ({ id: r.id, leadId: r.lead_id, buyer: r.buyer, company: r.company, aircraftId: r.aircraft_id, mode: r.mode, stage: r.stage, round: r.round, messages });
+const OPEN_DEALS = `(stage IN ('negotiating','escalated')
+    OR id IN (SELECT deal_id FROM messages WHERE delivery_status IN ('failed','blocked','skipped'))
+    OR id IN (SELECT id FROM deals ORDER BY created_at DESC, rowid DESC LIMIT ?))`;
+const withMessages = (rows) => {
+  if (!rows.length) return [];
+  const by = {}; for (const m of q(`SELECT * FROM messages WHERE deal_id IN (${rows.map(() => '?').join(',')}) ORDER BY seq`).all(...rows.map((r) => r.id))) (by[m.deal_id] ||= []).push(msgRow(m));
+  return rows.map((d) => dealRow(d, by[d.id] || []));
+};
 const deals = {
+  // For the UI: every deal that still needs work (negotiating, escalated, undelivered email) plus the newest `recent` of the rest.
+  listForState: (recent = 100) => withMessages(q(`SELECT * FROM deals WHERE ${OPEN_DEALS} ORDER BY created_at DESC, rowid DESC`).all(recent)),
+  count: () => q('SELECT COUNT(*) n FROM deals').get().n,
+  search: (term, limit = 20) => { const t = likeTerm(term); return withMessages(q("SELECT * FROM deals WHERE buyer LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\' OR aircraft_id LIKE ? ESCAPE '\\' OR id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(t, t, t, String(term).trim(), limit)); },
   list: () => {
     const all = q('SELECT * FROM messages ORDER BY seq').all(), by = {};
     for (const m of all) (by[m.deal_id] ||= []).push(msgRow(m));
@@ -224,6 +242,16 @@ const playbook = {
   get: () => unj(q("SELECT value FROM settings WHERE key='playbook'").get().value),
   set: (pb) => { q("INSERT INTO settings (key,value) VALUES ('playbook',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(j(pb)); },
 };
+
+// Totals for the dashboard, independent of how many records the lists carry.
+function counts() {
+  const n = (sql) => q(sql).get().n;
+  return {
+    aircraft: n('SELECT COUNT(*) n FROM aircraft'), leads: n('SELECT COUNT(*) n FROM leads'), leadsQualified: n("SELECT COUNT(*) n FROM leads WHERE status='qualified'"),
+    deals: n('SELECT COUNT(*) n FROM deals'), dealsNegotiating: n("SELECT COUNT(*) n FROM deals WHERE stage='negotiating'"), dealsEscalated: n("SELECT COUNT(*) n FROM deals WHERE stage='escalated'"),
+    dealsLOI: n("SELECT COUNT(*) n FROM deals WHERE stage='LOI'"), draftsPending: n("SELECT COUNT(*) n FROM messages WHERE status='draft'"),
+  };
+}
 
 function seed() {
   tx(() => {
@@ -283,4 +311,4 @@ function backup(dest) { if (fs.existsSync(dest)) throw new Error(dest + ' alread
 migrate();
 seed();
 
-module.exports = { MIGRATIONS, db, tx, users, sessions, aircraft, leads, deals, learned, feedback, activity: activityLog, playbook, defaultPlaybook, reset, importLegacy, backup, FILE };
+module.exports = { counts, MIGRATIONS, db, tx, users, sessions, aircraft, leads, deals, learned, feedback, activity: activityLog, playbook, defaultPlaybook, reset, importLegacy, backup, FILE };
