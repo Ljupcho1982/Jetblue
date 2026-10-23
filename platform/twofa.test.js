@@ -28,7 +28,8 @@ server.listen(0, '127.0.0.1', async () => {
     const setup = (await r('POST', 'me/2fa/setup', {}, admin)).body;
     assert.ok(/^[A-Z2-7]{32}$/.test(setup.secret) && setup.uri.startsWith('otpauth://totp/'));
     assert.equal((await r('POST', 'me/2fa/enable', { code: '000000' }, admin)).status, 400);
-    const en = await r('POST', 'me/2fa/enable', { code: at(setup.secret, 0) }, admin);
+    const enrolCode = at(setup.secret, 0); // keep the exact code: regenerating it later could legitimately give the next step's code
+    const en = await r('POST', 'me/2fa/enable', { code: enrolCode }, admin);
     assert.equal(en.status, 200); assert.equal(en.body.recoveryCodes.length, 10);
     const recovery = en.body.recoveryCodes; assert.ok(auth.isRecoveryFormat(recovery[0]));
     assert.equal((await r('POST', 'me/2fa/enable', { code: at(setup.secret, 1) }, admin)).status, 409);
@@ -43,7 +44,7 @@ server.listen(0, '127.0.0.1', async () => {
     assert.equal((await r('GET', 'state', null, 'sid=' + l1.body.ticket)).status, 401, 'ticket is not a session');
     assert.equal((await r('POST', 'login/2fa', { ticket: l1.body.ticket, code: '123456' })).status, 401);
     // code from the current step was used at enrolment: replaying it is refused, next step's code works once
-    assert.equal((await r('POST', 'login/2fa', { ticket: l1.body.ticket, code: at(setup.secret, 0) })).status, 401, 'enrolment code replayed');
+    assert.equal((await r('POST', 'login/2fa', { ticket: l1.body.ticket, code: enrolCode })).status, 401, 'enrolment code replayed');
     const good = at(setup.secret, 1);
     const ok = await r('POST', 'login/2fa', { ticket: l1.body.ticket, code: good });
     assert.equal(ok.status, 200); assert.ok(ok.cookie);
