@@ -14,6 +14,16 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22' }   # needs node:sqlite (22.13+)
       - run: npm test
+  accessibility:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: platform } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm i --no-save playwright axe-core
+      - run: npx playwright install --with-deps chromium
+      - run: node tools/a11y-check.js
   finetune-scripts:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: platform/finetune } }

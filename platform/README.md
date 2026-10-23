@@ -101,6 +101,11 @@ Built for the first weeks of real use. Brokers and admins can **Flag a problem**
 - **Make test** (admin) turns a flagged draft into a permanent test scenario using the decision you say it *should* have been (accept, counter or escalate). It fails on the Training page's test run until the rules or playbook are fixed, so each real mistake is fixed once and stays fixed. **Resolve** closes an item with a note.
 - Erasing a lead also deletes feedback about its deals, since flagged drafts can quote reply text.
 
+## Accessibility
+All screens, in light and dark mode and including the populated states (search results, CSV preview with errors, two-factor setup and sign-in step, pilot feedback), pass an automated axe-core audit for WCAG 2.1 A/AA plus best practices. Things that were found and fixed: unlabelled file/text/select controls, empty table headers, and text contrast (grey on the blue message bubble, and the red/green/amber status colours in dark mode). Keyboard focus is visible, status messages are announced, and tap targets are larger on phones.
+- Re-run it after UI changes: `cd platform && npm i --no-save playwright axe-core && npx playwright install chromium && node tools/a11y-check.js` (starts its own throwaway server; exits 1 on any violation; also a CI job).
+- Automated checks catch roughly a third of real accessibility problems. Keyboard-only use, a screen-reader pass and zoom to 200% still need a person. The native `prompt()`/`confirm()` dialogs used for notes and confirmations are accessible but plain.
+
 ## Currency
 One currency per deployment: `CURRENCY=EUR` (any ISO 4217 code such as `GBP`, `CHF`, `AED`, `CAD`; default `USD`; an unknown code falls back to USD). Prices, drafts, buyer offers in the thread, emails and form labels all use it, and the guardrail and the broker-edit confirmation recognise amounts in that currency (`€8.6M`, `8.6 million EUR`, `CHF 8 600 000`). CSV imports may carry a symbol or code and thousands separators in price columns (`€12,500,000`, `EUR 12 500 000`). Not supported: several currencies in one deployment, conversion, or per-aircraft currencies. Amounts already stored are plain numbers, so changing `CURRENCY` later relabels everything without converting it. Pick it before you import inventory.
 

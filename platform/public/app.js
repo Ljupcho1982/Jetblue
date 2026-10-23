@@ -79,13 +79,13 @@ const pages = {
 
   inventory() {
     return `<h1>Inventory</h1>
-    <div class="card"><table><tr><th>ID</th><th>Aircraft</th><th>Year / hrs</th><th>Seats / range</th><th>Location</th><th>List</th><th>Lease/mo</th>${can('view.full') ? '<th>Broker-only limits</th>' : ''}<th></th></tr>
+    <div class="card"><table><tr><th>ID</th><th>Aircraft</th><th>Year / hrs</th><th>Seats / range</th><th>Location</th><th>List</th><th>Lease/mo</th>${can('view.full') ? '<th>Broker-only limits</th>' : ''}<th><span class="sr-only">Actions</span></th></tr>
     ${S.inventory.map((a) => `<tr><td>${esc(a.id)}</td><td><b>${esc(a.model)}</b><br><span class="tag">${esc(a.type)}</span></td><td>${a.year}<br>${a.hours.toLocaleString()}</td><td>${a.seats}<br>${a.rangeNm} nm</td><td>${esc(a.location)}</td><td>${fmt(a.listPrice)}</td><td>${fmt(a.leaseMonthly)}</td>
       ${can('view.full') ? `<td class="small warn">floor ${fmt(a.floor)}<br>max disc ${a.maxDiscountPct}%<br>min lease ${fmt(a.minLeaseMonthly)} / ${a.minTermMonths} mo</td>` : ''}
       <td>${can('inventory.write') ? `<button class="small secondary" data-edit="${esc(a.id)}">Edit</button>` : ''} ${can('inventory.delete') ? `<button class="small danger" data-del="${esc(a.id)}">Delete</button>` : ''}</td></tr>`).join('')}</table></div>
     ${can('inventory.write') ? `<div class="card"><h2>Import from CSV</h2>
       <p class="muted small">One row per aircraft. Required columns: ${['model', 'type', 'year', 'hours', 'seats', 'rangeNm', 'location', 'listPrice', 'floor', 'maxDiscountPct', 'leaseMonthly', 'minLeaseMonthly', 'minTermMonths'].join(', ')}. Optional: id (rows with an existing id are updated). Up to 500 rows. You see a preview first and nothing is saved if any row has an error.</p>
-      <input type="file" id="csvFile" accept=".csv,text/csv"><textarea id="csvText" rows="4" placeholder="…or paste CSV here" style="margin-top:8px"></textarea>
+      <input type="file" id="csvFile" accept=".csv,text/csv" aria-label="CSV file"><textarea id="csvText" rows="4" placeholder="…or paste CSV here" aria-label="CSV text" style="margin-top:8px"></textarea>
       <button id="csvPreview">Preview</button><button class="secondary" id="csvTemplate">Download template</button><button id="csvImport" class="hidden">Import</button>
       <div id="csvOut"></div></div>` : ''}
     ${can('inventory.write') ? `<div class="card"><h2 id="invTitle">Add aircraft</h2><form id="invForm"><input type="hidden" name="id">
@@ -112,7 +112,7 @@ const pages = {
         let res; try { res = await fetch('/api/inventory/import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ csv, dryRun }) }).then(async (r) => ({ ok: r.ok, j: await r.json() })); } catch { return toast('Network error'); }
         const j = res.ok ? res.j : (res.j.details || { rows: [], errors: 1 });
         const head = res.ok ? '' : `<p class="bad">${esc(res.j.error)}</p>`;
-        $('#csvOut').innerHTML = head + (j.rows.length ? `<p><b>${j.created ?? 0}</b> new, <b>${j.updated ?? 0}</b> updates, <b class="${j.errors ? 'bad' : ''}">${j.errors}</b> error(s)</p><table><tr><th>Line</th><th>Action</th><th>Aircraft</th><th></th></tr>${j.rows.map((r) => `<tr><td>${r.line}</td><td>${esc(r.status)}</td><td>${esc(r.id || '')} ${esc(r.model || '')}</td><td class="bad small">${esc(r.error || '')}</td></tr>`).join('')}</table>` : '');
+        $('#csvOut').innerHTML = head + (j.rows.length ? `<p><b>${j.created ?? 0}</b> new, <b>${j.updated ?? 0}</b> updates, <b class="${j.errors ? 'bad' : ''}">${j.errors}</b> error(s)</p><table><tr><th>Line</th><th>Action</th><th>Aircraft</th><th><span class="sr-only">Actions</span></th></tr>${j.rows.map((r) => `<tr><td>${r.line}</td><td>${esc(r.status)}</td><td>${esc(r.id || '')} ${esc(r.model || '')}</td><td class="bad small">${esc(r.error || '')}</td></tr>`).join('')}</table>` : '');
         $('#csvImport').classList.toggle('hidden', !(dryRun && res.ok && j.errors === 0 && j.total > 0));
         if (!dryRun && res.ok) { toast(`Imported ${j.created} new, ${j.updated} updated`); render(); }
       };
@@ -175,7 +175,7 @@ const pages = {
         ${can('view.full') ? `<div class="limits">Broker-only: ${d.mode === 'lease' ? `min ${fmt(a.minLeaseMonthly)}/mo, min term ${a.minTermMonths} mo` : `floor ${fmt(a.floor)}, max discount ${a.maxDiscountPct}%`}. Asking ${priceOf(a, d.mode)}.</div>` : `<div class="muted small">Asking ${priceOf(a, d.mode)}.</div>`}
         <div>${d.messages.filter((m) => m.status !== 'rejected').map((m) => m.role === 'buyer' ? `<div class="msg buyer">${esc(m.text)}</div>` :
           m.status === 'draft' ? `<div class="msg assistant draft"><b>Draft (${esc(m.action)})</b> <span class="tag">${esc(m.source)}</span>
-            ${m.flags.map((f) => `<div class="warn small">⚠ ${esc(f)}</div>`).join('')}<textarea id="draftText" rows="5">${esc(m.text)}</textarea><div class="muted small">${esc(m.note)}</div>
+            ${m.flags.map((f) => `<div class="warn small">⚠ ${esc(f)}</div>`).join('')}<textarea id="draftText" rows="5" aria-label="Draft reply, editable">${esc(m.text)}</textarea><div class="muted small">${esc(m.note)}</div>
             <button data-approve="${esc(m.id)}">Approve and send</button><button class="secondary" data-reject="${esc(m.id)}">Reject</button><button class="secondary" data-flag="${esc(m.id)}" title="Tell us what is wrong with this draft">Flag a problem</button></div>`
           : `<div class="msg assistant">${esc(m.text)}${deliveryHtml(m)}</div>`).join('')}</div>
         ${['LOI', 'escalated'].includes(d.stage) ? `<p class="${d.stage === 'LOI' ? 'ok' : 'bad'}">${d.stage === 'LOI' ? 'Ready for letter of intent (human step).' : 'Escalated to the human broker.'}</p>` : ''}
@@ -231,13 +231,13 @@ const pages = {
       <form id="exForm" class="grid"><label>Situation<input name="situation" required></label><label>Reply text<input name="reply" required></label><div><button>Add example</button></div></form></div>
     <div class="card"><h2>Test scenarios</h2><p class="muted small">Checks decisions, that prices never fall below the floor, and that no private limit appears in a message.</p>
       <button id="runEval">Run all scenarios</button><div id="evalOut"></div>
-      <table><tr><th>Scenario</th><th>Aircraft</th><th>Offer</th><th>Round</th><th>Expect</th><th></th></tr>${p.scenarios.map((s, i) => `<tr><td>${esc(s.name)}</td><td>${esc(s.aircraftId)} ${esc(s.mode)}</td><td>${fmt(s.offer)}</td><td>${s.round}</td><td>${esc(s.expect)}</td><td><button class="small secondary" data-delsc="${i}">Remove</button></td></tr>`).join('')}</table>
+      <table><tr><th>Scenario</th><th>Aircraft</th><th>Offer</th><th>Round</th><th>Expect</th><th><span class="sr-only">Actions</span></th></tr>${p.scenarios.map((s, i) => `<tr><td>${esc(s.name)}</td><td>${esc(s.aircraftId)} ${esc(s.mode)}</td><td>${fmt(s.offer)}</td><td>${s.round}</td><td>${esc(s.expect)}</td><td><button class="small secondary" data-delsc="${i}">Remove</button></td></tr>`).join('')}</table>
       <h3>Add scenario</h3><form id="scForm" class="grid"><label>Name<input name="name" required></label><label>Aircraft<select name="aircraftId">${S.inventory.map((a) => `<option>${esc(a.id)}</option>`).join('')}</select></label>
         <label>Mode<select name="mode"><option>buy</option><option>lease</option></select></label><label>Offer<input name="offer" type="number" required></label><label>Round<input name="round" type="number" value="1"></label>
         <label>Term (lease)<input name="termMonths" type="number"></label><label>Expect<select name="expect"><option>accept</option><option>counter</option><option>escalate</option></select></label><div><button>Add</button></div></form></div>
     <div class="card"><h2>Pilot feedback ${openFb.length ? `<span class="tag warn">${openFb.length} open</span>` : ''}</h2>
       <p class="muted small">Problems flagged by brokers. For a flagged draft, <b>Make test</b> records what the correct decision should have been as a permanent test scenario (it will fail until the rules or playbook are fixed).</p>
-      ${FB.length ? `<table><tr><th>When / who</th><th>Feedback</th><th></th></tr>${FB.map((f) => `<tr><td class="small muted">${new Date(f.createdAt).toLocaleString()}<br>${esc(f.userEmail)}</td>
+      ${FB.length ? `<table><tr><th>When / who</th><th>Feedback</th><th><span class="sr-only">Actions</span></th></tr>${FB.map((f) => `<tr><td class="small muted">${new Date(f.createdAt).toLocaleString()}<br>${esc(f.userEmail)}</td>
         <td>${esc(f.comment)}${f.snapshot ? `<div class="small muted">${esc(f.snapshot.aircraftId)} ${esc(f.snapshot.mode)}, buyer offered ${f.snapshot.offer != null ? fmt(f.snapshot.offer) : '?'}${f.snapshot.termMonths ? ' / ' + esc(f.snapshot.termMonths) + ' mo' : ''}, round ${esc(f.snapshot.round)} → <b>${esc(f.snapshot.action)}</b>${f.snapshot.price ? ' ' + fmt(f.snapshot.price) : ''}</div><div class="small" style="white-space:pre-wrap">${esc(f.snapshot.text)}</div>` : ''}
           ${f.status === 'resolved' ? `<div class="small ok">Resolved by ${esc(f.resolvedBy)}: ${esc(f.resolution || '')}</div>` : ''}</td>
         <td>${f.status === 'open' ? `${f.snapshot ? `<button class="small secondary" data-mktest="${esc(f.id)}">Make test</button> ` : ''}<button class="small secondary" data-fbresolve="${esc(f.id)}">Resolve</button>` : ''}</td></tr>`).join('')}</table>` : '<p class="muted small">No feedback yet.</p>'}</div>
@@ -268,9 +268,9 @@ const pages = {
 pages.users = async function () {
   const users = await call('GET', 'users');
   return `<h1>Users</h1>
-  <div class="card"><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>2FA</th><th></th></tr>
+  <div class="card"><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>2FA</th><th><span class="sr-only">Actions</span></th></tr>
   ${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
-    <td><select data-role="${esc(u.id)}">${['admin', 'broker', 'viewer'].map((r) => `<option ${r === u.role ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
+    <td><select data-role="${esc(u.id)}" aria-label="Role for ${esc(u.email)}">${['admin', 'broker', 'viewer'].map((r) => `<option ${r === u.role ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
     <td>${u.disabled ? '<span class="tag bad">disabled</span>' : '<span class="tag ok">active</span>'}</td>
     <td>${u.twoFactor ? `<span class="tag ok">on</span> <button class="small secondary" data-reset2fa="${esc(u.id)}">Reset</button>` : '<span class="tag">off</span>'}</td>
     <td><button class="small secondary" data-toggle="${esc(u.id)}|${u.disabled ? 0 : 1}">${u.disabled ? 'Enable' : 'Disable'}</button>
