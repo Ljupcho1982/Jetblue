@@ -1,0 +1,15 @@
+I built an AI that negotiates aircraft sales and leases. It can't set the price, and that's on purpose.
+
+A rules engine decides every number. In round one it gives up 25% of the room between list and floor, then 45%, then 65%. Round four goes to a human. The language model only words the reply.
+
+The floor price never reaches the model. A guardrail rejects any draft that leaks it, or that sounds like a binding offer. I didn't want an AI that bluffs.
+
+Nothing goes to a buyer until a named broker approves it. Sanctions screening runs before a deal can even start.
+
+Why so strict? One wrong sentence in an aircraft deal can cost real money, and I don't trust a chatbot that just does its best. I wanted one that knows exactly where it stops, plus 20 automated test suites that prove it does.
+
+The demo runs in your browser with 11 invented aircraft. Nothing's saved or sent. Open a deal, read the draft, approve it yourself.
+
+Which step of a deal wouldn't you hand to software?
+
+#Aviation #AircraftLeasing #AI
