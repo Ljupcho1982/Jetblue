@@ -63,7 +63,9 @@
   const FOLD_MAP = { '\u00df': 'ss', '\u0142': 'l', '\u00f8': 'o', '\u0111': 'd', '\u00e6': 'ae', '\u0153': 'oe', '\u00f0': 'd', '\u00fe': 'th', '\u0131': 'i' }; // ß ł ø đ æ œ ð þ ı
   const fold = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[\u00df\u0142\u00f8\u0111\u00e6\u0153\u00f0\u00fe\u0131]/g, (c) => FOLD_MAP[c]);
 
-  const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US');
+  // One currency per deployment: CURRENCY=EUR (any ISO 4217 code). An unknown code falls back to USD.
+  const currency = () => { const c = String(process.env.CURRENCY || 'USD').trim().toUpperCase(); try { new Intl.NumberFormat('en-US', { style: 'currency', currency: c }); return c; } catch { return 'USD'; } };
+  const fmt = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: currency(), minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Math.round(n));
 
   // Decide how to respond to a buyer's offer. Returns a DRAFT; a human must approve it.
   // Sale: offer is the price. Lease: offer is the monthly rate.
@@ -110,7 +112,7 @@
   // Reads amounts the way a person would: "$9,040,000", "9.04 million", "9.04M", "USD 9 040 000", "9,04 million".
   // Spelled-out amounts ("nine million") are rejected outright because they cannot be checked reliably.
   const MULT = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, million: 1e6, b: 1e9, bn: 1e9, billion: 1e9 };
-  const AMOUNT_RE = /(\$|€|£|¥|\b(?:usd|eur|gbp|chf)\b)?\s?(\d{1,3}(?:[,   ]\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)(?:\s?(thousand|million|billion)\b|(k|mm|bn|m|b)(?![a-z0-9]))?(?:\s?(?:usd|eur|gbp|chf|dollars?|euros?)\b)?/gi;
+  const AMOUNT_RE = /(\$|€|£|¥|\b(?:usd|eur|gbp|chf|cad|aud|nzd|jpy|cny|sek|nok|dkk|pln|czk|huf|aed|sar|sgd|hkd|inr|brl|mxn|zar|try)\b)?\s?(\d{1,3}(?:[,   ]\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)(?:\s?(thousand|million|billion)\b|(k|mm|bn|m|b)(?![a-z0-9]))?(?:\s?(?:usd|eur|gbp|chf|cad|aud|nzd|jpy|cny|sek|nok|dkk|pln|czk|huf|aed|sar|sgd|hkd|inr|brl|mxn|zar|try|dollars?|euros?|pounds?|francs?)\b)?/gi;
   const SPELLED_RE = /\b(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a|half a)[\s-]+(?:\w+[\s-]+){0,4}?(?:thousand|million|billion)|(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+hundred)\b/i;
 
   function extractAmounts(text) {
@@ -120,7 +122,7 @@
       let digits = num.replace(/[   ]/g, '');
       digits = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(digits) ? digits.replace(/,/g, '') : digits.replace(',', '.');
       const value = Number(digits) * (MULT[mag] || 1);
-      const currency = !!cur || /(usd|eur|gbp|chf|dollars?|euros?)\s*$/i.test(raw);
+      const currency = !!cur || /(usd|eur|gbp|chf|cad|aud|nzd|jpy|cny|sek|nok|dkk|pln|czk|huf|aed|sar|sgd|hkd|inr|brl|mxn|zar|try|dollars?|euros?|pounds?|francs?)\s*$/i.test(raw);
       if (Number.isFinite(value)) out.push({ raw: raw.trim(), value, currency, magnitude: !!mag });
     }
     return out;
@@ -140,5 +142,5 @@
     return { ok: true };
   }
 
-  return { INVENTORY, DEFAULT_RULES, screen, matchAircraft, negotiate, validateMessage, extractAmounts, fold, fmt };
+  return { INVENTORY, DEFAULT_RULES, screen, matchAircraft, negotiate, validateMessage, extractAmounts, fold, currency, fmt };
 });

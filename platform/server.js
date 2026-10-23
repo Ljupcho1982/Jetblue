@@ -60,6 +60,7 @@ function parseAircraft(b) {
 // CSV import. Header names are matched ignoring case, spaces and underscores ("range_nm" = "rangeNm").
 const CSV_COLUMNS = ['id', 'model', 'type', 'year', 'hours', 'seats', 'rangeNm', 'location', 'listPrice', 'floor', 'maxDiscountPct', 'leaseMonthly', 'minLeaseMonthly', 'minTermMonths'];
 const CSV_OPTIONAL = new Set(['id']);
+const CSV_MONEY = new Set(['listPrice', 'floor', 'leaseMonthly', 'minLeaseMonthly']);
 function importInventory(csv, dryRun) {
   if (typeof csv !== 'string' || !csv.trim()) throw httpErr(400, 'csv text required');
   let parsed; try { parsed = parseCsv(csv); } catch (e) { throw httpErr(400, e.message); }
@@ -71,7 +72,10 @@ function importInventory(csv, dryRun) {
   if (missing.length) throw httpErr(400, 'Missing columns: ' + missing.join(', '));
   const seen = new Set(), rows = [];
   for (const { line, cells } of parsed.slice(1)) {
-    const rec = {}; cols.forEach((c, i) => { if (c) rec[c] = (cells[i] ?? '').trim().replace(/^\$/, '').replace(/(?<=\d),(?=\d{3}(\D|$))/g, ''); });
+    const rec = {}; cols.forEach((c, i) => {
+      if (!c) return; const cell = (cells[i] ?? '').trim();
+      rec[c] = CSV_MONEY.has(c) ? cell.replace(/^(?:[$€£¥]|[A-Za-z]{3}(?=[\s\d]))\s?/, '').replace(/(?<=\d),(?=\d{3}(\D|$))/g, '').replace(/(?<=\d)[\u00a0\u202f ](?=\d{3}(\D|$))/g, '') : cell; // prices may carry a currency symbol or code and thousands separators
+    });
     try {
       const a = parseAircraft(rec);
       if (seen.has(a.id) && rec.id) throw httpErr(400, 'duplicate id ' + a.id + ' in this file');
@@ -92,7 +96,7 @@ function redactedState(st) {
     inventory: st.inventory.map((a) => Object.fromEntries(Object.entries(a).filter(([k]) => !PRIVATE_AIRCRAFT.includes(k)))),
     leads: st.leads.map(({ email, screening: s, ...l }) => ({ ...l, screening: { ok: s.ok, status: s.status } })),
     deals: st.deals.map((d) => ({ ...d, messages: d.messages.filter((x) => x.role === 'buyer' || x.status === 'sent').map(({ facts, original, note, flags, source, deliveryError, ...x }) => x) })),
-    counts: st.counts, activity: st.activity, playbook: null, learned: [], llm: { enabled: st.llm.enabled }, mail: { enabled: st.mail.enabled },
+    counts: st.counts, currency: st.currency, activity: st.activity, playbook: null, learned: [], llm: { enabled: st.llm.enabled }, mail: { enabled: st.mail.enabled },
   };
 }
 
@@ -246,7 +250,7 @@ async function api(req, url, ctx) {
   }
 
   if (p[0] === 'state' && m === 'GET') {
-    const st = { counts: store.counts(), inventory: store.aircraft.list(), leads: store.leads.listForState(), deals: store.deals.listForState(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe(), mail: mailer.describe(), demo: DEMO(), screening: screening.describe() };
+    const st = { counts: store.counts(), inventory: store.aircraft.list(), leads: store.leads.listForState(), deals: store.deals.listForState(), playbook: store.playbook.get(), learned: store.learned.list(), activity: store.activity.recent(), llm: llm.describe(), mail: mailer.describe(), demo: DEMO(), screening: screening.describe(), currency: Logic.currency() };
     if (!auth.can(user, 'users.manage')) st.activity = st.activity.filter((x) => !AUTH_EVENT.test(x.msg));
     return auth.can(user, 'view.full') ? st : redactedState(st);
   }

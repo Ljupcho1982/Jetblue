@@ -16,8 +16,8 @@ BINDING = re.compile(r"guarantee|legally binding|we accept your offer and", re.I
 # Same reading of amounts as the platform's guardrail (logic.js): "$9,040,000", "9.04 million", "9.04M", "USD 9 040 000".
 MULT = {"k": 1e3, "thousand": 1e3, "m": 1e6, "mm": 1e6, "million": 1e6, "b": 1e9, "bn": 1e9, "billion": 1e9}
 AMOUNT = re.compile(
-    r"(\$|€|£|¥|\b(?:usd|eur|gbp|chf)\b)?\s?(\d{1,3}(?:[,   ]\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)"
-    r"(?:\s?(thousand|million|billion)\b|(k|mm|bn|m|b)(?![a-z0-9]))?(?:\s?(?:usd|eur|gbp|chf|dollars?|euros?)\b)?", re.I)
+    r"(\$|€|£|¥|\b(?:usd|eur|gbp|chf|cad|aud|nzd|jpy|cny|sek|nok|dkk|pln|czk|huf|aed|sar|sgd|hkd|inr|brl|mxn|zar|try)\b)?\s?(\d{1,3}(?:[,   ]\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)"
+    r"(?:\s?(thousand|million|billion)\b|(k|mm|bn|m|b)(?![a-z0-9]))?(?:\s?(?:usd|eur|gbp|chf|cad|aud|nzd|jpy|cny|sek|nok|dkk|pln|czk|huf|aed|sar|sgd|hkd|inr|brl|mxn|zar|try|dollars?|euros?|pounds?|francs?)\b)?", re.I)
 SPELLED = re.compile(
     r"\b(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a|half a)[\s-]+(?:\w+[\s-]+){0,4}?(?:thousand|million|billion)|(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+hundred)\b", re.I)
 
@@ -44,7 +44,7 @@ def amounts(text):
         digits = re.sub(r"[   ]", "", num)
         digits = digits.replace(",", "") if re.fullmatch(r"\d{1,3}(,\d{3})+(\.\d+)?", digits) else digits.replace(",", ".")
         value = float(digits) * MULT.get(mag, 1)
-        currency = bool(cur) or bool(re.search(r"(usd|eur|gbp|chf|dollars?|euros?)\s*$", raw, re.I))
+        currency = bool(cur) or bool(re.search(r"(usd|eur|gbp|chf|cad|aud|nzd|jpy|cny|sek|nok|dkk|pln|czk|huf|aed|sar|sgd|hkd|inr|brl|mxn|zar|try|dollars?|euros?|pounds?|francs?)\s*$", raw, re.I))
         out.append((value, currency or bool(mag) or value >= 10000, raw.strip()))
     return out
 

@@ -43,6 +43,18 @@ class PrepareTest(unittest.TestCase):
         self.assertEqual(len((out / "val.jsonl").read_text().splitlines()), 1)
         self.assertEqual(len((out / "train.jsonl").read_text().splitlines()), 12)
 
+    def test_other_currencies(self):
+        def eur(reply):
+            facts = {"decision": {"action": "counter", "price": "\u20ac9,310,000", "flags": []}, "buyersOffer": "\u20ac8,000,000", "aircraft": {"year": 2008, "seats": 70, "rangeNm": 825}}
+            return {"messages": [{"role": "system", "content": "s"}, {"role": "user", "content": json.dumps(facts)}, {"role": "assistant", "content": reply}]}
+        good = [eur("We can propose \u20ac9,310,000 for the ATR, ref %d." % i) for i in range(6)]
+        bad = [eur("Our floor is \u20ac8.6M."), eur("Lowest is 8.6 million EUR."), eur("How about CHF 8,700,000?")]
+        d = Path(tempfile.mkdtemp()); (d / "in.jsonl").write_text("".join(json.dumps(r) + "\n" for r in good + bad))
+        (d / "db.json").write_text(json.dumps({"inventory": [{"floor": 8600000, "minLeaseMonthly": 86000, "listPrice": 9500000, "maxDiscountPct": 8}]}))
+        p = subprocess.run([sys.executable, str(HERE / "prepare_data.py"), str(d / "in.jsonl"), "--db", str(d / "db.json"), "--out", str(d / "out"), "--min-rows", "2"], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("clean rows: 6", p.stdout)
+
     def test_too_few_rows_fails(self):
         p, _ = self.run_prepare([row(8000000, 9040000, "We propose $9,040,000.")], min_rows=50)
         self.assertNotEqual(p.returncode, 0)

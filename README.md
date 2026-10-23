@@ -13,7 +13,7 @@ Try it:
 ```
 cd platform
 npm start        # http://127.0.0.1:3000, then create the admin account
-npm test         # 18 test suites
+npm test         # 19 test suites
 ```
 
 What it does: inventory with private price limits, lead intake with counterparty screening, AI-drafted negotiation with broker approval, email to buyers, roles and two-factor sign-in, CSV inventory import, audit log, backups, and a training area to tune the assistant.

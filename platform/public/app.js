@@ -1,6 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US');
+let CURRENCY = 'USD';
+const fmt = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: CURRENCY, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Math.round(n));
 let LEAD_Q = '', DEAL_Q = '', CUR_DEALS = [], TODO = [], S = null, selectedDeal = null, ME = null, PERMS = [], MUST_ENROLL = false, MUST_POLICY = false;
 const can = (p) => PERMS.includes('*') || PERMS.includes(p);
 
@@ -12,7 +13,7 @@ async function call(method, path, body) {
   return j;
 }
 function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.remove('hidden'); setTimeout(() => t.classList.add('hidden'), 3000); }
-async function refresh() { S = await call('GET', 'state'); $('#llmStatus').textContent = !can('view.full') ? '' : S.llm.enabled ? 'Model: ' + S.llm.provider + ' / ' + S.llm.model : 'Model: off (templates)'; }
+async function refresh() { S = await call('GET', 'state'); CURRENCY = S.currency || 'USD'; $('#llmStatus').textContent = !can('view.full') ? '' : S.llm.enabled ? 'Model: ' + S.llm.provider + ' / ' + S.llm.model : 'Model: off (templates)'; }
 const aircraft = (id) => S.inventory.find((a) => a.id === id);
 const priceOf = (a, mode) => (mode === 'lease' ? fmt(a.leaseMonthly) + '/mo' : fmt(a.listPrice));
 const form = (el) => Object.fromEntries(new FormData(el));
@@ -178,7 +179,7 @@ const pages = {
             <button data-approve="${esc(m.id)}">Approve and send</button><button class="secondary" data-reject="${esc(m.id)}">Reject</button><button class="secondary" data-flag="${esc(m.id)}" title="Tell us what is wrong with this draft">Flag a problem</button></div>`
           : `<div class="msg assistant">${esc(m.text)}${deliveryHtml(m)}</div>`).join('')}</div>
         ${['LOI', 'escalated'].includes(d.stage) ? `<p class="${d.stage === 'LOI' ? 'ok' : 'bad'}">${d.stage === 'LOI' ? 'Ready for letter of intent (human step).' : 'Escalated to the human broker.'}</p>` : ''}
-        ${!pending && d.stage === 'negotiating' && can('deals.write') ? `<div class="grid"><label>Buyer's offer (${d.mode === 'lease' ? 'per month' : 'USD'})<input id="offer" type="number"></label>${d.mode === 'lease' ? '<label>Term (months)<input id="term" type="number" value="36"></label>' : ''}</div><button id="sendOffer">Submit buyer's offer</button>` : ''}</div>`;
+        ${!pending && d.stage === 'negotiating' && can('deals.write') ? `<div class="grid"><label>Buyer's offer (${CURRENCY}${d.mode === 'lease' ? ' per month' : ''})<input id="offer" type="number"></label>${d.mode === 'lease' ? '<label>Term (months)<input id="term" type="number" value="36"></label>' : ''}</div><button id="sendOffer">Submit buyer's offer</button>` : ''}</div>`;
     }
     const search = can('deals.write') ? `<form id="dealSearch" style="display:flex;gap:6px;margin-bottom:8px"><input name="q" placeholder="Find a deal" value="${esc(DEAL_Q)}" aria-label="Search deals"><button class="secondary" style="margin:0">Go</button>${DEAL_Q ? '<button type="button" class="secondary" id="dealSearchClear" style="margin:0">×</button>' : ''}</form>
       ${DEAL_Q ? `<p class="small muted">${all.length} result(s)</p>` : (C.deals > S.deals.length ? `<p class="small muted">Open deals and the newest others (${S.deals.length} of ${C.deals}). Search for older ones.</p>` : '')}` : '';
