@@ -44,7 +44,7 @@ If something does not work, run `docker compose logs --tail 50` in that folder a
 - Turn on two-factor sign-in (Account page). Administrators are required to by default on a server.
 - **Your GitHub project is public, and that is fine.** It was checked: the whole history contains no passwords, keys or personal data, every change is credited to a generic "Claude" author (not your email), and the settings file `.env`, the database (`platform/data`), backups and your sanctions list are all excluded from Git so they cannot be uploaded by accident. The app's security does not depend on the code being secret. Three things to remember:
   - **Never commit real data.** Do not put real buyers, passwords, the `.env` file or your own aircraft price limits in files you upload to GitHub. (The sample aircraft and prices in the code are invented.)
-  - **There is no licence yet.** On a public project without one, other people can read the code but are not legally allowed to copy or reuse it. If you want others to be able to use it, tell me which licence you want (for example MIT, which lets anyone use it for free) and I will add it.
+  - **The project uses the MIT licence** (see the file `LICENSE`): anyone may use, copy, change and sell it, as long as they keep the copyright notice, and it comes with no warranty. The notice names your GitHub account; if you want your real name there, edit that one line.
   - `docs/business-plan.md` is public too. Delete it from the project if you would rather not publish your plan.
 - Ask a compliance adviser and a lawyer to review the screening and privacy handling before you contact real buyers.
 

@@ -20,3 +20,6 @@ npm test         # 19 test suites
 What it does: inventory with private price limits, lead intake with counterparty screening, AI-drafted negotiation with broker approval, email to buyers, roles and two-factor sign-in, CSV inventory import, audit log, backups, and a training area to tune the assistant.
 
 Status: working and tested against mocks. Not yet exercised against a live model, a real email provider, a built Docker image, or a GPU training run. Screening is a first gate, not a compliance programme. See the "Not production-ready yet" section of the platform README before using real customer data.
+
+## Licence
+MIT. See [LICENSE](LICENSE). The platform has no third-party runtime dependencies (it uses only what Node.js ships with), so there are no other licences to carry along.
