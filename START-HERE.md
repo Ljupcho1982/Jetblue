@@ -5,7 +5,7 @@ This is a program that helps you sell and lease aircraft. It keeps your aircraft
 ## Part 1. Try it on your own computer (about 10 minutes)
 
 1. **Install Node.js** (a free helper program). Go to **https://nodejs.org**, download the button marked **LTS**, and install it by clicking Next. If you already have it, skip this.
-2. **Download this project.** Click this link: **https://github.com/Ljupcho1982/Jetblue/archive/refs/heads/ccr-4429975c-yke6ow.zip**
+2. **Download this project.** While signed in to GitHub in your browser, click this link: **https://github.com/Ljupcho1982/Jetblue/archive/refs/heads/ccr-4429975c-yke6ow.zip** (the project is private, so it only works when you are signed in).
    Open the downloaded file and choose "Extract all" (Windows) or double-click it (Mac). You get a folder called `Jetblue-ccr-4429975c-yke6ow`.
 3. **Start it.**
    - **Windows:** open the folder and double-click **start.bat**. If Windows warns you, choose "More info", then "Run anyway".
@@ -25,11 +25,15 @@ You need two things from other companies. **I cannot create or pay for these for
 1. **A small server.** At any hosting company (DigitalOcean, Hetzner, Vultr, Linode, AWS Lightsail...) rent a basic **Ubuntu** server with **2 GB of memory**. They email you an address and a way to log in.
 2. **A web address**, for example `deals.yourcompany.com`. In your domain provider's settings, add a record of type **A** that points that name to the server's address. Wait about 15 minutes.
 
-Then log in to the server (the hosting company explains how; it is a text window) and paste these four lines, replacing the address in the last line with yours:
+Because the project is private, the server cannot download it by itself. Instead, **send it from your computer**: first download the zip (step 2 of Part 1) so you have the file `Jetblue-ccr-4429975c-yke6ow.zip`. Then:
 
+1. On your computer, open **Terminal** (Mac) or **PowerShell** (Windows) in the folder where the zip is, and upload it (replace `YOUR_SERVER_ADDRESS` with the address your hosting company gave you; some providers use a user name other than `root`):
 ```
-sudo apt-get update && sudo apt-get install -y unzip curl
-curl -L -o app.zip https://github.com/Ljupcho1982/Jetblue/archive/refs/heads/ccr-4429975c-yke6ow.zip
+scp Jetblue-ccr-4429975c-yke6ow.zip root@YOUR_SERVER_ADDRESS:~/app.zip
+```
+2. Log in to the server (the hosting company explains how; it is a text window) and paste these lines, replacing the web address in the last line with yours:
+```
+sudo apt-get update && sudo apt-get install -y unzip
 unzip app.zip && cd Jetblue-ccr-4429975c-yke6ow
 sudo bash setup-server.sh deals.yourcompany.com
 ```
@@ -42,10 +46,8 @@ If something does not work, run `docker compose logs --tail 50` in that folder a
 
 - Read **platform/PILOT.md**: a two-week checklist for trying it with one or two brokers.
 - Turn on two-factor sign-in (Account page). Administrators are required to by default on a server.
-- **Your GitHub project is public, and that is fine.** It was checked: the whole history contains no passwords, keys or personal data, every change is credited to a generic "Claude" author (not your email), and the settings file `.env`, the database (`platform/data`), backups and your sanctions list are all excluded from Git so they cannot be uploaded by accident. The app's security does not depend on the code being secret. Three things to remember:
-  - **Never commit real data.** Do not put real buyers, passwords, the `.env` file or your own aircraft price limits in files you upload to GitHub. (The sample aircraft and prices in the code are invented.)
-  - **There is no licence yet.** On a public project without one, other people can read the code but are not legally allowed to copy or reuse it. If you want others to be able to use it, tell me which licence you want (for example MIT, which lets anyone use it for free) and I will add it.
-  - `docs/business-plan.md` is public too. Delete it from the project if you would rather not publish your plan.
+- **Keep your GitHub project private.** It contains your business plan and the logic that sets your price limits. To check: open the project's web address in a private or incognito window. If you can see it without signing in, it is still public. To change it: on GitHub open the project, **Settings**, scroll to the bottom ("Danger Zone"), **Change visibility**, **Make private**, and type the project name to confirm.
+- **Never commit real data.** Do not put real buyers, passwords, the `.env` file or your own aircraft price limits in files you upload to GitHub, even to a private project. The settings file `.env`, the database (`platform/data`), backups and your sanctions list are already excluded from Git so they cannot be uploaded by accident. (The sample aircraft and prices in the code are invented.)
 - Ask a compliance adviser and a lawyer to review the screening and privacy handling before you contact real buyers.
 
 ## What this does not do
