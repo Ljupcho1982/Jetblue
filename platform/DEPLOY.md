@@ -6,7 +6,7 @@ One small server with Docker, a domain name, and ports 80/443 open. Caddy gets a
 
 ## First deploy
 1. Point a DNS `A` record for your domain (for example `deals.yourcompany.com`) at the server. Open ports 80 and 443 only.
-2. On the server: get the project onto the server (`git clone` it; for a private repo use a read-only access token, or upload the zip as described in START-HERE.md), `cd platform`, then `cp .env.example .env` and set `DOMAIN` and `APP_SECRET` (`openssl rand -hex 32`; keep a copy somewhere safe, it protects the two-factor secrets). Add email and model settings if you want them (see README).
+2. On the server: `git clone` this repo, `cd platform`, then `cp .env.example .env` and set `DOMAIN` and `APP_SECRET` (`openssl rand -hex 32`; keep a copy somewhere safe, it protects the two-factor secrets). Add email and model settings if you want them (see README).
 3. `docker compose up -d --build`
 4. Open `https://<your domain>`. The first visit asks you to create the admin account. Do this right away, before sharing the address.
 5. Set up your own two-factor sign-in on the **Account** page (`.env.example` requires it for admins by default). Then add brokers on the **Users** page and load your aircraft with **Inventory → Import from CSV** (the image starts empty, `SEED_DEMO=0`). Test with `MAIL_ALLOWED_DOMAINS` set before letting email reach real buyers.
