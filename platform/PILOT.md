@@ -10,6 +10,7 @@ A two-week trial with one or two brokers and a handful of real (or realistic) de
 - [ ] Invite the pilot brokers (**Users**, role *broker*), each with two-factor on.
 - [ ] Set `MAIL_ALLOWED_DOMAINS` to your own domain(s) so no real buyer can be emailed by mistake. Send yourself a test deal first.
 - [ ] Decide the model: templates only (default), an open-source model (`LLM_PROVIDER=ollama`), or Claude. Start with templates if unsure; it is the safest.
+- [ ] Check **Training → Negotiation rules**: how fast should the assistant concede? New installs start at 25% of the available room in round 1, 45% in round 2, 65% in round 3, escalation in round 4. Installs from before this default keep their old values.
 - [ ] Take a backup and practise one restore (DEPLOY.md).
 
 ## Each deal

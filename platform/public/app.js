@@ -48,7 +48,7 @@ const pages = {
       if (d.stage === 'escalated') todo.push({ kind: 'Escalated to broker', tone: 'bad', text: `${d.buyer}, ${name(d.aircraftId)}`, deal: d.id });
       if (d.stage === 'LOI') todo.push({ kind: 'Ready for letter of intent', tone: 'ok', text: `${d.buyer}, ${name(d.aircraftId)}`, deal: d.id });
     }
-    for (const l of S.leads) if (['review', 'error'].includes(l.screening.status)) todo.push({ kind: 'Screening needs review', tone: 'warn', text: `${l.name}${l.company ? ', ' + l.company : ''}`, lead: true });
+    for (const l of S.leads) if (!l.screening.ok && ['review', 'error'].includes(l.screening.status)) todo.push({ kind: 'Screening needs review', tone: 'warn', text: `${l.name}${l.company ? ', ' + l.company : ''}`, lead: true });
     TODO = todo;
     const pending = S.deals.reduce((n, d) => n + d.messages.filter((m) => m.status === 'draft').length, 0);
     const fresh = !S.leads.length && !S.deals.length;

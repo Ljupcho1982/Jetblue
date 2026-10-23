@@ -74,7 +74,7 @@ assert.equal(imp.prepare('SELECT COUNT(*) n FROM users').get().n, 1);
 // --- concurrent offers: a slow model must not let two drafts through ---
 const server = require('./server.js');
 const { raw, adminClient } = require('./testlib.js');
-const slow = http.createServer((req, res) => { setTimeout(() => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ choices: [{ message: { content: 'We can propose $9,040,000.' } }] })); }, 300); });
+const slow = http.createServer((req, res) => { setTimeout(() => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ choices: [{ message: { content: 'We can propose $9,310,000.' } }] })); }, 300); });
 slow.listen(0, '127.0.0.1', () => {
   process.env.LLM_PROVIDER = 'ollama'; process.env.LLM_BASE_URL = 'http://127.0.0.1:' + slow.address().port + '/v1';
   server.listen(0, '127.0.0.1', async () => {

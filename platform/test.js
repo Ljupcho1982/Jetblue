@@ -91,4 +91,12 @@ assert.deepEqual(L.extractAmounts('$9.04M and 1,971 nm').map((a) => a.value), [9
   const top = L.matchAircraft({ mode: 'buy', seats: 60 })[0].aircraft; assert.ok(top.seats / 60 <= 1.25, 'best fit should be near the seat requirement');
   assert.match(L.matchAircraft({ mode: 'buy', budget: 9e6, seats: 60 })[0].reasons[0], /within reach/);
 }
+
+// Default concession schedule: 25% of the room between asking price and limit in round 1, then 45%, then 65%, then escalate
+{
+  const rounds = [1, 2, 3, 4].map((round) => L.negotiate({ aircraft: atr, mode: 'buy', offer: 8000000, round }));
+  assert.deepEqual(rounds.map((d) => d.action), ['counter', 'counter', 'counter', 'escalate']);
+  assert.deepEqual(rounds.slice(0, 3).map((d) => d.price), [9310000, 9160000, 9010000]);
+  assert.ok(rounds[0].price > 9500000 - (9500000 - 8740000) * 0.5, 'first counter must stay well above the halfway point');
+}
 console.log('logic tests passed');

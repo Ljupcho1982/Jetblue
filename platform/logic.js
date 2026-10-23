@@ -62,7 +62,7 @@
 
   // Decide how to respond to a buyer's offer. Returns a DRAFT; a human must approve it.
   // Sale: offer is the price. Lease: offer is the monthly rate.
-  const DEFAULT_RULES = { stepBase: 0.4, stepPerRound: 0.2, escalateBelowPct: 85, maxRounds: 4, disclaimer: 'This is subject to contract and broker confirmation.' };
+  const DEFAULT_RULES = { stepBase: 0.05, stepPerRound: 0.2, escalateBelowPct: 85, maxRounds: 4, disclaimer: 'This is subject to contract and broker confirmation.' };
 
   function negotiate({ aircraft: a, mode, offer, round, termMonths, rules }) {
     const R = Object.assign({}, DEFAULT_RULES, rules || {});
