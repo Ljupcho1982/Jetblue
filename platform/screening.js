@@ -2,6 +2,8 @@
 // fails closed, and records decisions. Statuses: clear | review | hit | error.
 //   Built in : country list (Logic.screen) + fuzzy name match against SANCTIONS_FILE (one name per line, or a CSV with a name/alias column,
 //              e.g. an export of the OFAC SDN or EU consolidated list that you download and refresh yourself).
+//   Matching works within a script (Cyrillic against Cyrillic, Latin against Latin). It does not transliterate, so include the
+//   spellings you expect in the list, or use a provider that does.
 //   Provider : SCREENING_WEBHOOK_URL receives POST {name, company, country} and must answer {"status":"clear"|"review"|"hit"} (optional "reason").
 //              Any failure, timeout or unexpected answer is status "error" (the lead is held), never "clear".
 const fs = require('fs');
@@ -12,8 +14,8 @@ const RANK = { clear: 0, review: 1, error: 2, hit: 3 };
 const worst = (a, b) => (RANK[b.status] > RANK[a.status] ? b : a);
 const SUFFIX = new Set(['ltd', 'llc', 'inc', 'co', 'corp', 'corporation', 'company', 'limited', 'sa', 'ag', 'gmbh', 'bv', 'nv', 'plc', 'jsc', 'ooo', 'ao', 'pjsc', 'llp', 'lp', 'the', 'of']);
 
-function normalize(s) {
-  return String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((t) => t && !SUFFIX.has(t));
+function normalize(s) { // any script: letters and digits are kept, so Cyrillic, Chinese, Arabic... names are matched too
+  return Logic.fold(s).replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter((t) => t && !SUFFIX.has(t));
 }
 function lev(a, b) {
   if (a === b) return 0; if (!a.length) return b.length; if (!b.length) return a.length;

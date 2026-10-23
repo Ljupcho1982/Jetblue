@@ -58,6 +58,11 @@
       .sort((x, y) => y.score - x.score || x.aircraft.listPrice - y.aircraft.listPrice);
   }
 
+  // Case-, accent- and width-insensitive form of a name for matching and search. Works for any script:
+  // "MÜLLER" -> "muller", "José" -> "jose", "ИВАН" -> "иван", "ß" -> "ss". Marks are stripped before lowercasing so "İ" -> "i".
+  const FOLD_MAP = { '\u00df': 'ss', '\u0142': 'l', '\u00f8': 'o', '\u0111': 'd', '\u00e6': 'ae', '\u0153': 'oe', '\u00f0': 'd', '\u00fe': 'th', '\u0131': 'i' }; // ß ł ø đ æ œ ð þ ı
+  const fold = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[\u00df\u0142\u00f8\u0111\u00e6\u0153\u00f0\u00fe\u0131]/g, (c) => FOLD_MAP[c]);
+
   const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US');
 
   // Decide how to respond to a buyer's offer. Returns a DRAFT; a human must approve it.
@@ -135,5 +140,5 @@
     return { ok: true };
   }
 
-  return { INVENTORY, DEFAULT_RULES, screen, matchAircraft, negotiate, validateMessage, extractAmounts, fmt };
+  return { INVENTORY, DEFAULT_RULES, screen, matchAircraft, negotiate, validateMessage, extractAmounts, fold, fmt };
 });

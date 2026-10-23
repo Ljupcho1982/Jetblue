@@ -146,14 +146,18 @@ const aircraft = {
 
 // ---- leads ----
 const leadRow = (r) => r && ({ id: r.id, createdAt: r.created_at, name: r.name, company: r.company, email: r.email, country: r.country, status: r.status, request: unj(r.request), screening: unj(r.screening), matches: unj(r.matches) });
-const likeTerm = (t) => '%' + String(t).replace(/[\\%_]/g, '\\$&') + '%'; // user text must not act as a wildcard
 const leads = {
   list: () => q('SELECT * FROM leads ORDER BY created_at DESC, rowid DESC').all().map(leadRow),
   // For the UI: the newest `recent` leads plus every lead still waiting for a compliance decision, however old.
   listForState: (recent = 200) => q(`SELECT * FROM leads WHERE id IN (SELECT id FROM leads ORDER BY created_at DESC, rowid DESC LIMIT ?)
       OR (status='compliance-hold' AND json_extract(screening,'$.status') IN ('review','error')) ORDER BY created_at DESC, rowid DESC`).all(recent).map(leadRow),
   count: () => q('SELECT COUNT(*) n FROM leads').get().n,
-  search: (term, limit = 50) => { const t = likeTerm(term); return q("SELECT * FROM leads WHERE name LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(t, t, t, String(term).trim(), limit).map(leadRow); },
+  // Unicode-aware: case and accents are ignored in every script ("иван" finds "Иван", "muller" finds "Müller").
+  search: (term, limit = 50) => {
+    const f = Logic.fold(term).trim(), raw = String(term).trim(); if (!f) return [];
+    const ids = q('SELECT id, name, company, email FROM leads ORDER BY created_at DESC, rowid DESC').all().filter((r) => r.id === raw || Logic.fold(r.name).includes(f) || Logic.fold(r.company).includes(f) || Logic.fold(r.email).includes(f)).slice(0, limit).map((r) => r.id);
+    return ids.length ? ids.map((id) => leads.get(id)) : [];
+  },
   get: (id) => leadRow(q('SELECT * FROM leads WHERE id=?').get(id)),
   insert: (l) => { q('INSERT INTO leads (id,created_at,name,company,email,country,status,request,screening,matches) VALUES (?,?,?,?,?,?,?,?,?,?)').run(l.id, l.createdAt, l.name, l.company ?? null, l.email ?? null, l.country ?? null, l.status, j(l.request), j(l.screening), j(l.matches)); },
   setScreening: (id, screening, status, matches) => { q('UPDATE leads SET screening=?, status=?, matches=? WHERE id=?').run(j(screening), status, j(matches), id); },
@@ -199,7 +203,11 @@ const deals = {
   // For the UI: every deal that still needs work (negotiating, escalated, undelivered email) plus the newest `recent` of the rest.
   listForState: (recent = 100) => withMessages(q(`SELECT * FROM deals WHERE ${OPEN_DEALS} ORDER BY created_at DESC, rowid DESC`).all(recent)),
   count: () => q('SELECT COUNT(*) n FROM deals').get().n,
-  search: (term, limit = 20) => { const t = likeTerm(term); return withMessages(q("SELECT * FROM deals WHERE buyer LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\' OR aircraft_id LIKE ? ESCAPE '\\' OR id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(t, t, t, String(term).trim(), limit)); },
+  search: (term, limit = 20) => {
+    const f = Logic.fold(term).trim(), raw = String(term).trim(); if (!f) return [];
+    const ids = q('SELECT id, buyer, company, aircraft_id FROM deals ORDER BY created_at DESC, rowid DESC').all().filter((r) => r.id === raw || Logic.fold(r.buyer).includes(f) || Logic.fold(r.company).includes(f) || Logic.fold(r.aircraft_id).includes(f)).slice(0, limit).map((r) => r.id);
+    return ids.length ? withMessages(ids.map((id) => q('SELECT * FROM deals WHERE id=?').get(id))) : [];
+  },
   list: () => {
     const all = q('SELECT * FROM messages ORDER BY seq').all(), by = {};
     for (const m of all) (by[m.deal_id] ||= []).push(msgRow(m));
