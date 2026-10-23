@@ -2,6 +2,7 @@
 
 A web platform for brokers who sell and lease aircraft. An AI assistant qualifies buyers, proposes counter-offers inside limits the broker sets, and drafts replies. A human broker approves every message before it is sent.
 
+- **[START-HERE.md](START-HERE.md)**: plain-language steps to run it on your computer or put it on a server (`start.bat`, `start.sh`, `setup-server.sh`).
 - **[platform/](platform/README.md)**: the application (Node 22, no npm dependencies, SQLite). Start here.
 - **[platform/PILOT.md](platform/PILOT.md)**: a two-week pilot checklist (setup, per-deal routine, weekly review, go/no-go).
 - **[platform/DEPLOY.md](platform/DEPLOY.md)**: running it for real (Docker, HTTPS, backups).
