@@ -8,8 +8,8 @@ const can = (p) => PERMS.includes('*') || PERMS.includes(p);
 async function call(method, path, body) {
   const r = await fetch('/api/' + path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json();
-  if (r.status === 401 && ME) { ME = null; render(); throw new Error('Session ended'); }
-  if (!r.ok) { toast(j.error || 'Error'); throw new Error(j.error); }
+  if (r.status === 401 && ME) { ME = null; render(); throw Object.assign(new Error('Session ended'), { handled: true }); }
+  if (!r.ok) { toast(j.error || 'Error'); throw Object.assign(new Error(j.error), { handled: true }); } // already shown to the user
   return j;
 }
 function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.remove('hidden'); setTimeout(() => t.classList.add('hidden'), 3000); }
@@ -382,3 +382,5 @@ async function render() {
 }
 window.addEventListener('hashchange', render);
 render();
+// Errors the app already reported with a message (a refused request) should not also land in the console as uncaught.
+window.addEventListener('unhandledrejection', (e) => { if (e.reason && e.reason.handled) e.preventDefault(); });
