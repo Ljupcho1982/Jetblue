@@ -82,6 +82,8 @@ Prefer clicking over typing? In the Cloudflare dashboard go to **Workers & Pages
 ### B. Use the real program from the internet through Cloudflare (a "tunnel")
 The real program keeps running on your own computer (or a small server), and a free Cloudflare tunnel gives it a secure `https://` address that others can open. Nothing is uploaded to Cloudflare except the traffic passing through.
 1. **Create the administrator account first, on your own computer** (Part 1, open http://127.0.0.1:3000). The first person to open a new installation becomes the administrator, so never put an empty installation on the internet.
+**Shortcut:** after step 1 and step 2, double-click `start-tunnel.bat` (Windows) or run `bash start-tunnel.sh` (Mac/Linux). It starts the program with safe settings (HTTPS cookies, proxy trust, two-factor required for admins, a saved secret key) and opens the tunnel. It refuses to run if no admin account exists yet. Steps 3 to 5 below are the same thing done by hand.
+
 2. Install the Cloudflare tunnel program (`cloudflared`): Windows, in a terminal run `winget install Cloudflare.cloudflared`; Mac, run `brew install cloudflared`.
 3. Start the program as in Part 1 but tell it a proxy is in front of it. In a terminal in the project folder:
    - Windows: `set TRUST_PROXY=1` and then `start.bat real`
